@@ -41,7 +41,7 @@ task fastqToSam {
     input {
         String sampleName
         File Infile
-        String docker
+        String docker = 'rdshear/netseq'
     }
 
     String outFileName = '~{sampleName}.unaligned.bam'
@@ -56,7 +56,7 @@ task fastqToSam {
             --PLATFORM illumina  \
             -—SANITIZE true \
             --VALIDATION_STRINGENCY SILENT \
-            -—RESTORE_ORIGINAL_QUALITIES true
+            --RESTORE_ORIGINAL_QUALITIES true
 
     >>>
 

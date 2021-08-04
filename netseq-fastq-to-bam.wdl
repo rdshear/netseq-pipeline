@@ -20,7 +20,7 @@ workflow NETseq {
 
     input {
         File fastqFile
-        String genomeDir = '/n/groups/churchman/rds19/starRefFiles/genome/'
+#        String genomeDir = '/n/groups/churchman/rds19/starRefFiles/genome/'
         String sampleName
         String rnaSeq_docker = 'rdshear/netseq'
     }
@@ -33,7 +33,7 @@ workflow NETseq {
     }
     
     output {
-        File ubamOutput = fastqToSam.outFile
+        File reads_unmapped_bams = fastqToSam.outFile
     }
 }
 
@@ -41,7 +41,7 @@ task fastqToSam {
     input {
         String sampleName
         File Infile
-        String docker = 'rdshear/netseq'
+        String docker
     }
 
     String outFileName = '~{sampleName}.unaligned.bam'
@@ -53,11 +53,7 @@ task fastqToSam {
         picard FastqToSam --FASTQ ~{Infile} \
             --OUTPUT ~{outFileName} \
             --SM CPAWT1 \
-            --PLATFORM illumina  \
-            -—SANITIZE true \
-            --VALIDATION_STRINGENCY SILENT \
-            --RESTORE_ORIGINAL_QUALITIES true
-
+            --PLATFORM illumina
     >>>
 
     output {

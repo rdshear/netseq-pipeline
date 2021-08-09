@@ -6,6 +6,9 @@ tmp=$(mktemp).sam
 ubamFileName='xwt-1.unaligned.sam'
 genomeRef='/n/groups/churchman/rds19/starRefFiles/genome/'
 
+# TODO: move to genome setup
+
+
 conda activate cpa
 
 picard FastqToSam --FASTQ "${Infile}" \
@@ -33,10 +36,21 @@ STAR --genomeDir ${genomeRef}  --readFilesIn tmp.fastq \
          --alignIntronMin 11 \
          --alignIntronMax 5000 \
          --outFilterType BySJout \
-         --outFilterMultimapNmax 1 \
          --alignSJoverhangMin 8 \
          --alignSJDBoverhangMin 1 \
          --outFilterMismatchNmax 999 \
          --alignMatesGapMax 2000 \
          --outSAMattrIHstart 0 \
          --outSAMtype BAM SortedByCoordinate
+
+conda activate cpa
+
+
+# TODO: MOVE TO genomeRef creation
+picard CreateSequenceDictionary -R ${genomeRef}sacCer3/genome.fa -O ${genomeRef}sacCer3/genome.dict
+
+picard MergeBamAlignment -R ${genomeRef}sacCer3/genome.fa \
+        --ALIGNED aligned/xwt-1.Aligned.sortedByCoord.out.bam \
+        --ALIGNED aligned/xwt-1.Aligned.sortedByCoord.out.bam \
+        --UNMAPPED_BAM xwt-1.unaligned.sam \
+        -O merge_alighments.bam

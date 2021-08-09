@@ -27,7 +27,12 @@ picard SamToFastq -I ${ubamFileName} -F tmp.fastq --CLIPPING_ACTION X \
     --CLIPPING_ATTRIBUTE XT \
     --CLIPPING_MIN_LENGTH ${MinimumReadLength}
 
+seq="/n/groups/churchman/rds19/refGenome/sacCer3/genome.fasta"
+gtf="/n/groups/churchman/rds19/refGenome/sacCer3/sacCer3.gtf"
+threads=3
+
 conda activate star
+
 
 STAR --genomeDir ${genomeRef}  --readFilesIn tmp.fastq \
          --outFileNamePrefix aligned/${sampleName}. \
@@ -46,10 +51,7 @@ STAR --genomeDir ${genomeRef}  --readFilesIn tmp.fastq \
 conda activate cpa
 
 
-# TODO: MOVE TO genomeRef creation
-picard CreateSequenceDictionary -R ${genomeRef}sacCer3/genome.fa -O ${genomeRef}sacCer3/genome.dict
-
-picard MergeBamAlignment -R ${genomeRef}sacCer3/genome.fa \
+picard MergeBamAlignment -R /n/groups/churchman/rds19/starRefFiles/genome/../sacCer3.fa \
         --ALIGNED aligned/xwt-1.Aligned.sortedByCoord.out.bam \
         --ALIGNED aligned/xwt-1.Aligned.sortedByCoord.out.bam \
         --UNMAPPED_BAM xwt-1.unaligned.sam \

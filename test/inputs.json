@@ -1,4 +1,3 @@
 {
-  "NETseq.sampleName": "xwt-1",
-  "NETseq.fastqFile": "/Users/robertshear/Projects/netseq-pipeline/test/input/xwt-1.fastq.gz"
+  "NETseq.inputFastQ": "/Users/robertshear/Projects/netseq-pipeline/test/input/xwt-1.fastq.gz"
 }

@@ -13,11 +13,11 @@ workflow NETseq {
 
     input {
         File inputFastQ
-        String sampleName = baseName(inputFastQ, ".fastq")
+        String sampleName = basename(inputFastQ, ".fastq")
 
-        File refFasta
-        File refFastaIndex
-	    File refDict
+#        File refFasta
+#        File refFastaIndex
+#	    File refDict
 
         String rnaSeq_docker = 'rdshear/netseq'
     }
@@ -25,7 +25,7 @@ workflow NETseq {
     call fastqToSam {
         input:
             sampleName = sampleName,
-            Infile = fastqFile,
+            Infile = inputFastQ,
             docker = rnaSeq_docker
     }
     
@@ -41,20 +41,23 @@ task fastqToSam {
         String docker
     }
 
-    String outFileName = '~{sampleName}.unaligned.bam'
+    String ubamFileName = '~{sampleName}.unaligned.bam'
 
     command <<<
-
-        source activate gatk
-    
-        picard FastqToSam --FASTQ ~{Infile} \
-            --OUTPUT ~{outFileName} \
-            --SM CPAWT1 \
-            --PLATFORM illumina
-    >>>
+        gatk FastqToSam --FASTQ ~{Infile} \
+            --OUTPUT /dev/stdout \
+            --SM  ${sampleName} \
+            --PLATFORM illumina \
+            --SORT_ORDER queryname \
+        | gatk MarkIlluminaAdapters -I /dev/stdin \
+                -O ~{ubamFileName} \
+                -M mia_metrix.txt \
+                --THREE_PRIME_ADAPTER NNNNNNATCTCGTATGCCGTCTTCTGCTTG \
+            --ADAPTERS SINGLE_END --FIVE_PRIME_ADAPTER GATCGGAAGAGCACACGTCTGAACTCCAGTCAC
+            >>>
 
     output {
-        File outFile = outFileName
+        File outFile = ubamFileName
     }
 
     runtime {

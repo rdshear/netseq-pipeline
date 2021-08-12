@@ -8,20 +8,17 @@ workflow NETseq {
     }
 
     parameter_meta {
-        sample_name: {
-            description: "Base name of output files.",
-            category: "common"
-        }
-        reads_unmapped_bams: {
-            description: "Unaligned reads in BAM format",
-            patterns: ["*.bam"]
-        }
+        inputFastQ: "Unprocessed reads"
     }
 
     input {
-        File fastqFile
-#        String genomeDir = '/n/groups/churchman/rds19/starRefFiles/genome/'
-        String sampleName
+        File inputFastQ
+        String sampleName = baseName(inputFastQ, ".fastq")
+
+        File refFasta
+        File refFastaIndex
+	    File refDict
+
         String rnaSeq_docker = 'rdshear/netseq'
     }
 

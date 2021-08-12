@@ -10,6 +10,7 @@ rm -Rf *
 gzcat ../../ucsc_golden_path/sacCer3.fa.gz > sacCer3.fa
    
 STAR --runThreadN 3 --outFileNamePrefix genome/logs/Index. \
+    --sjdbGTFfile /n/groups/churchman/rds19/data/saccharomyces_cerevisiae.gff \
     --genomeSAindexNbases 10 \
         --runMode genomeGenerate \
         --genomeDir genome  \

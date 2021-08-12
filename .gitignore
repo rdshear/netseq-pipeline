@@ -40,3 +40,6 @@ vignettes/*.pdf
 
 # Test working directory
 /test/wd/
+
+# VS Code opgtions
+.vscode/

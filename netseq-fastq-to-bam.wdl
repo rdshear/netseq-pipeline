@@ -10,14 +10,9 @@ workflow NETseq {
     parameter_meta {
         inputFastQ: "Unprocessed reads"
     }
-
     input {
         File inputFastQ
-        String sampleName = basename(inputFastQ, ".fastq")
-
-#        File refFasta
-#        File refFastaIndex
-#	    File refDict
+        String sampleName = basename(basename(inputFastQ, ".gz"), ".fastq")
 
         String rnaSeq_docker = 'rdshear/netseq'
     }
@@ -30,7 +25,8 @@ workflow NETseq {
     }
     
     output {
-        File reads_unmapped_bams = fastqToSam.outFile
+        File reads_unmapped_bams = fastqToSam.ubamFile
+        File adapter_metrix = fastqToSam.markAdapterMetrics
     }
 }
 
@@ -41,25 +37,33 @@ task fastqToSam {
         String docker
     }
 
+    String tempUbamFileName = '~{sampleName}.raw_unaligned.bam'
     String ubamFileName = '~{sampleName}.unaligned.bam'
+
+    String metricsFileName = '~{sampleName}.markAdaptersMetrics.txt'
 
     command <<<
         gatk FastqToSam --FASTQ ~{Infile} \
-            --OUTPUT /dev/stdout \
-            --SM  ${sampleName} \
+            --OUTPUT ~{tempUbamFileName} \
+            --SAMPLE_NAME ~{sampleName} \
             --PLATFORM illumina \
-            --SORT_ORDER queryname \
-        | gatk MarkIlluminaAdapters -I /dev/stdin \
-                -O ~{ubamFileName} \
-                -M mia_metrix.txt \
-                --THREE_PRIME_ADAPTER NNNNNNATCTCGTATGCCGTCTTCTGCTTG \
-            --ADAPTERS SINGLE_END --FIVE_PRIME_ADAPTER GATCGGAAGAGCACACGTCTGAACTCCAGTCAC
+            --SORT_ORDER queryname
+
+        gatk MarkIlluminaAdapters --INPUT ~{tempUbamFileName} \
+            --OUTPUT ~{ubamFileName} \
+            --METRICS ~{metricsFileName} \
+            --THREE_PRIME_ADAPTER NNNNNNATCTCGTATGCCGTCTTCTGCTTG \
+            --FIVE_PRIME_ADAPTER GATCGGAAGAGCACACGTCTGAACTCCAGTCAC \
+            --ADAPTERS SINGLE_END 
+
+        rm ~{tempUbamFileName}
             >>>
 
     output {
-        File outFile = ubamFileName
-    }
+            File ubamFile = ubamFileName
+            File markAdapterMetrics = metricsFileName
 
+    }
     runtime {
         docker: docker
     }

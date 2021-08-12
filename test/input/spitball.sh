@@ -1,5 +1,5 @@
 #! /bin/bash
-cd /work
+cd /work || return
 sampleName="xwt-1"
 Infile='/ref/GSE159603/xwt-1.fastq.gz'
 MinimumReadLength='24'

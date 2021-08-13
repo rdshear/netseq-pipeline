@@ -1,6 +1,7 @@
 {
   "NETseq.threads": 3,
   "NETseq.genome": "sacCer3",
+  "NETseq.starReferencesIn": "/Users/robertshear/temp1/star-sacCer3-refs.tar.gz",
   "NETseq.refFasta": "/n/groups/churchman/ucsc_golden_path/sacCer3.fa", 
   "NETseq.refFastaIndex": "/n/groups/churchman/ucsc_golden_path/sacCer3.fa.fai", 
   "NETseq.starJunctionReadLength": 40, 

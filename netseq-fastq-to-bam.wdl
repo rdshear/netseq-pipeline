@@ -12,50 +12,101 @@ workflow NETseq {
         inputFastQ: "Unprocessed reads"
     }
     input {
+
+        # general environment
         Int threads = 8
         String genome
+
         # Genome source for STAR
+        File? starReferencesIn
         File refFasta
         File refFastaIndex
-        Int? readLength
-        File? zippedStarReferences
         File annotationsGTF
+        Int starJunctionReadLength = 50 # maximum number of bases to concatanate between donor and acceptor sides of splice junction 
 
         # Unprocessed reads
         File inputFastQ
         String sampleName = basename(basename(inputFastQ, ".gz"), ".fastq")
 
-        String rnaSeq_docker = 'rdshear/netseq'
+        String netseq_docker = 'rdshear/netseq'
     }
+    if (!defined(starReferencesIn)) {
+        call StarGenerateReferences { 
+            input:
+                threads = threads,
+                genome = genome,
+                ref_fasta = refFasta,
+                ref_fasta_index = refFastaIndex,
+                annotations_gtf = annotationsGTF,
+                read_length = starJunctionReadLength,
+                docker = netseq_docker
+        }
+    }
+    File starReferences = select_first([StarGenerateReferences.star_genome_refs_zipped,starReferencesIn,""])
 
     call fastqToSam {
         input:
             sampleName = sampleName,
             Infile = inputFastQ,
-            docker = rnaSeq_docker
+            docker = netseq_docker
     }
 
-    
-	if (!defined(zippedStarReferences)) {
-
-		call StarGenerateReferences { 
-			input:
-                threads = threads,
-                genome = genome,
-				ref_fasta = refFasta,
-				ref_fasta_index = refFastaIndex,
-				annotations_gtf = annotationsGTF,
-				read_length = readLength,
-				docker = rnaSeq_docker
-		}
-	} 
-    
-    File starReferences = select_first([zippedStarReferences,StarGenerateReferences.star_genome_refs_zipped,""])
+    call StarAlign {
+        input:
+            star_genome_refs_zipped = starReferences,
+            refFasta = refFasta,
+            ubamFile = fastqToSam.ubamFile,
+            sampleName = sampleName,
+            threads = threads,
+            docker = netseq_docker
+    }
 
     output {
         File reads_unmapped_bams = fastqToSam.ubamFile
         File adapter_metrix = fastqToSam.markAdapterMetrics
-        File starGeneratedReferences = starReferences
+        File? starReferencesOut = StarGenerateReferences.star_genome_refs_zipped
+        Array[File]? starLogs = StarGenerateReferences.star_logs
+        File output_bam = StarAlign.output_bam
+    }
+}
+
+task StarGenerateReferences {
+    input {
+        String genome
+        File ref_fasta
+        File ref_fasta_index
+        File annotations_gtf
+        Int read_length
+        Int threads = 8
+        String docker
+    }
+    String starRefsName = "star-~{genome}-refs.tar.gz"
+    command <<<
+        set -e
+
+        source activate gatk
+    
+        mkdir star_work
+
+        STAR \
+        --runMode genomeGenerate \
+        --runThreadN ~{threads} \
+        --genomeDir STAR_work \
+        --genomeFastaFiles ~{ref_fasta} \
+        --sjdbGTFfile ~{annotations_gtf} \
+        --sjdbOverhang ~{read_length} \
+
+        tar -zcvf ~{starRefsName} star_work
+    >>>
+
+    output {
+        Array[File] star_logs = glob("*.out")
+        File star_genome_refs_zipped = starRefsName
+    }
+
+    runtime {
+        docker: docker
+        cpu: threads
     }
 }
 
@@ -85,7 +136,7 @@ task fastqToSam {
             --METRICS ~{metricsFileName} \
             --THREE_PRIME_ADAPTER NNNNNNATCTCGTATGCCGTCTTCTGCTTG \
             --FIVE_PRIME_ADAPTER GATCGGAAGAGCACACGTCTGAACTCCAGTCAC \
-            --ADAPTERS SINGLE_END 
+            --ADAPTERS SINGLE_END
 
         rm ~{tempUbamFileName}
             >>>
@@ -93,50 +144,61 @@ task fastqToSam {
     output {
             File ubamFile = ubamFileName
             File markAdapterMetrics = metricsFileName
-
     }
     runtime {
         docker: docker
     }
 }
-
-task StarGenerateReferences {
+task StarAlign {
     input {
-        String genome
-        File ref_fasta
-        File ref_fasta_index
-        File annotations_gtf
-        Int read_length = 100
+        File star_genome_refs_zipped
+        File ubamFile
+        File refFasta
+        String sampleName
+        Int clippingMinimumLength = 24 # TODO Parameterize
+
         Int threads = 8
         String docker
     }
-    String starRefsName = "star-~{genome}-refs.tar.gz"
+
+    String refFastaDictName = "~{refFasta}.dict"
+    String bamResultName = "~{sampleName}.aligned1.bam"
+
     command <<<
         set -e
-        mkdir STAR_WORK
+
+        tar -xvzf ~{star_genome_refs_zipped}
+
+        # TODO: needs to be "along side" of local refFasta
+        # TODO Refactor this line
+        gatk CreateSequenceDictionary -R ~{refFasta} -O ~{refFastaDictName}
+
+        fastqFile=$(mktemp).fastq
+
+        gatk SamToFastq -I ~{ubamFile} -F $fastqFile --CLIPPING_ACTION X \
+            --CLIPPING_ATTRIBUTE XT \
+            --CLIPPING_MIN_LENGTH ~{clippingMinimumLength}
 
         STAR \
-        --runMode genomeGenerate \
-        --runThreadN ~{threads} \
-        --genomeDir STAR_work \
-        --genomeFastaFiles ~{ref_fasta} \
-        --sjdbGTFfile ~{annotations_gtf} \
-        --sjdbOverhang ~{read_length} \
-        --runThreadN ~{threads}
+            --genomeDir star_work \
+            --runThreadN ~{threads} \
+            --readFilesIn $fastqFile \
+            --outStd SAM \
+            --outFileNamePrefix ~{sampleName}. \
+        | gatk MergeBamAlignment --REFERENCE_SEQUENCE sacCer3.fa \
+            --ALIGNED /dev/stdin 
+            --UNMAPPED_BAM ~{ubamFile} -O ~{bamResultName}
 
-        ls STAR_work
-
-        tar -zcvf ~{starRefsName} STAR_work
     >>>
+    # TODO Sort at MergeBamAlignment?
 
+    # TODO glob the *.out and/or log files
     output {
-        Array[File] star_logs = glob("*.out")
-        File star_genome_refs_zipped = starRefsName
+        File output_bam = bamResultName
     }
 
     runtime {
         docker: docker
-        cpu: threads
     }
 }
 

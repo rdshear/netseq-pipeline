@@ -161,7 +161,6 @@ task StarAlign {
         String docker
     }
 
-    String refFastaDictName = "~{refFasta}.dict"
     String bamResultName = "~{sampleName}.aligned1.bam"
 
     command <<<
@@ -171,7 +170,7 @@ task StarAlign {
 
         # TODO: needs to be "along side" of local refFasta
         # TODO Refactor this line
-        gatk CreateSequenceDictionary -R ~{refFasta} -O ~{refFastaDictName}
+        gatk CreateSequenceDictionary -R ~{refFasta}
 
         fastqFile=$(mktemp).fastq
 
@@ -185,9 +184,10 @@ task StarAlign {
             --readFilesIn $fastqFile \
             --outStd SAM \
             --outFileNamePrefix ~{sampleName}. \
-        | gatk MergeBamAlignment --REFERENCE_SEQUENCE sacCer3.fa \
-            --ALIGNED /dev/stdin 
-            --UNMAPPED_BAM ~{ubamFile} -O ~{bamResultName}
+        | gatk MergeBamAlignment --REFERENCE_SEQUENCE ~{refFasta} \
+            --ALIGNED /dev/stdin \
+            --UNMAPPED_BAM ~{ubamFile} \
+            --OUTPUT ~{bamResultName}
 
     >>>
     # TODO Sort at MergeBamAlignment?

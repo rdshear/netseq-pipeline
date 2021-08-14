@@ -91,9 +91,10 @@ task StarGenerateReferences {
         STAR \
         --runMode genomeGenerate \
         --runThreadN ~{threads} \
-        --genomeDir STAR_work \
+        --genomeDir star_work \
         --genomeFastaFiles ~{ref_fasta} \
         --sjdbGTFfile ~{annotations_gtf} \
+        --genomeSAindexNbases 10 \
         --sjdbOverhang ~{read_length} \
 
         tar -zcvf ~{starRefsName} star_work
@@ -161,14 +162,14 @@ task StarAlign {
         String docker
     }
 
-    String bamResultName = "~{sampleName}.aligned1.bam"
+    String bamResultName = "~{sampleName}.aligned.bam"
 
     command <<<
         set -e
 
         tar -xvzf ~{star_genome_refs_zipped}
 
-        # TODO: needs to be "along side" of local refFasta
+        # TODO: should be "along side" of local refFasta
         # TODO Refactor this line
         gatk CreateSequenceDictionary -R ~{refFasta}
 
@@ -183,14 +184,16 @@ task StarAlign {
             --runThreadN ~{threads} \
             --readFilesIn $fastqFile \
             --outStd SAM \
-            --outFileNamePrefix ~{sampleName}. \
-        | gatk MergeBamAlignment --REFERENCE_SEQUENCE ~{refFasta} \
-            --ALIGNED /dev/stdin \
+            --outSAMmultNmax 1 \
+        | samtools sort -n -O sam > sorted.sam
+
+        #HACK can't pipe to MergeBamAlignemnt bacause /dev/stdin "is not a supported filetype"
+        gatk MergeBamAlignment --REFERENCE_SEQUENCE ~{refFasta} \
+            --ALIGNED sorted.sam \
             --UNMAPPED_BAM ~{ubamFile} \
             --OUTPUT ~{bamResultName}
 
     >>>
-    # TODO Sort at MergeBamAlignment?
 
     # TODO glob the *.out and/or log files
     output {

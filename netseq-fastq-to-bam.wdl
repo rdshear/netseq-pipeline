@@ -138,9 +138,7 @@ task fastqToSam {
             --THREE_PRIME_ADAPTER NNNNNNATCTCGTATGCCGTCTTCTGCTTG \
             --FIVE_PRIME_ADAPTER GATCGGAAGAGCACACGTCTGAACTCCAGTCAC \
             --ADAPTERS SINGLE_END
-
-        rm ~{tempUbamFileName}
-            >>>
+    >>>
 
     output {
             File ubamFile = ubamFileName
@@ -171,23 +169,52 @@ task StarAlign {
 
         # TODO: should be "along side" of local refFasta
         # TODO Refactor this line
-        gatk CreateSequenceDictionary -R ~{refFasta}
-
+        if [[ ! -f $(dirname ~{refFasta})/$(basename ~{refFasta} '.fa').dict ]]
+        then
+            gatk CreateSequenceDictionary -R ~{refFasta}
+        fi
+        
+        # TODO use template to avoid empty "touch" file
         fastqFile=$(mktemp).fastq
 
-        gatk SamToFastq -I ~{ubamFile} -F $fastqFile --CLIPPING_ACTION X \
+        # Drop lines without adapters, as indicated by XT filename or STAR will break?
+        #TODO Add UMI extraction
+        # TODO 
+        cat > temp.R <<CODE
+            block_size <- 1000
+            infile <- file("stdin")
+            open(infile)
+            while (length(x <- readLines(infile, n = block_size)) > 0 ) {
+                writeLines(x[startsWith(x, "@") | grepl("XT:i:", x, fixed = TRUE)])
+            } 
+        CODE
+
+
+        samtools view ~{ubamFile} \
+        | Rscript --vanilla temp.R \
+        | gatk SamToFastq -I all_xt.sam -F $fastqFile --CLIPPING_ACTION X \
             --CLIPPING_ATTRIBUTE XT \
             --CLIPPING_MIN_LENGTH ~{clippingMinimumLength}
 
-        STAR \
-            --genomeDir star_work \
-            --runThreadN ~{threads} \
-            --readFilesIn $fastqFile \
-            --outStd SAM \
-            --outSAMmultNmax 1 \
-        | samtools sort -n -O sam > sorted.sam
+        # TODO add parameter --runthreadN ~{threads} 
 
-        #HACK can't pipe to MergeBamAlignemnt bacause /dev/stdin "is not a supported filetype"
+        STAR --runMode alignReads \
+            --genomeDir star_work \
+            --readFilesIn $fastqFile \
+            --outSAMtype BAM Unsorted \
+            --outFileNamePrefix aligned/~{sampleName}. \
+            --outReadsUnmapped None \
+            --outSAMattributes All \
+            --alignIntronMin 11 \
+            --alignIntronMax 5000 \
+            --outFilterType BySJout \
+            --alignSJoverhangMin 8 \
+            --alignSJDBoverhangMin 1 \
+            --outFilterMismatchNmax 99 \
+            --outSAMattrIHstart 0
+
+        samtools sort -n -O sam  aligned/~{sampleName}.Aligned.out.bam > sorted.sam
+
         gatk MergeBamAlignment --REFERENCE_SEQUENCE ~{refFasta} \
             --ALIGNED sorted.sam \
             --UNMAPPED_BAM ~{ubamFile} \

@@ -1,5 +1,7 @@
 #! /bin/bash
 cd ~/temp || exit
+rm -R ~/temp/*
+
 conda activate cpa
 
 cromwell run -i ~/Projects/netseq-pipeline/test/inputs_2.json -t wdl \

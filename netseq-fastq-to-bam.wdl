@@ -190,9 +190,9 @@ task StarAlign {
         CODE
 
 
-        samtools view ~{ubamFile} \
+        samtools view -h ~{ubamFile} \
         | Rscript --vanilla temp.R \
-        | gatk SamToFastq -I all_xt.sam -F $fastqFile --CLIPPING_ACTION X \
+        | gatk SamToFastq -I /dev/stdin -F $fastqFile --CLIPPING_ACTION X \
             --CLIPPING_ATTRIBUTE XT \
             --CLIPPING_MIN_LENGTH ~{clippingMinimumLength}
 

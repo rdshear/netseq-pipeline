@@ -88,6 +88,7 @@ task StarGenerateReferences {
     
         mkdir star_work
 
+        # TODO should be optional parameters (14 is default, 10 recommended for sacCer3)
         STAR \
         --runMode genomeGenerate \
         --runThreadN ~{threads} \
@@ -174,36 +175,63 @@ task StarAlign {
             gatk CreateSequenceDictionary -R ~{refFasta}
         fi
         
-        # TODO use template to avoid empty "touch" file
-        fastqFile=$(mktemp).fastq
+        fastqFile=$(mktemp)
 
         # Drop lines without adapters, as indicated by XT filename or STAR will break?
-        #TODO Add UMI extraction
-        # TODO 
         cat > temp.R <<CODE
-            block_size <- 1000
-            infile <- file("stdin")
-            open(infile)
-            while (length(x <- readLines(infile, n = block_size)) > 0 ) {
-                writeLines(x[startsWith(x, "@") | grepl("XT:i:", x, fixed = TRUE)])
-            } 
-        CODE
+block_size <- 1000
+infile <- file("stdin")
+open(infile)
+while (length(x <- readLines(infile, n = block_size)) > 0 ) {
+    writeLines(x[startsWith(x, "@") | grepl("XT:i:", x, fixed = TRUE)])
+} 
+CODE
 
+        cat > extractumi.py <<CODE
+import pysam
+
+umi_length = 6
+base_complements = ''.maketrans({'A':'T', 'C':'G', 'G':'C', 'T':'A'})
+infile = pysam.AlignmentFile("/dev/stdin", mode="rb")
+outfile = pysam.AlignmentFile("/dev/stdout", mode="wb", template=infile)
+
+for r in infile.fetch(until_eof=True):
+    xt_tag = [i for i in filter(lambda x: x[0] == 'XT', r.tags)]
+    if len(xt_tag) > 0:
+        # STAR translates seq to reverse complement, restore it to get true UMI
+        if r.is_reverse:
+            s = r.seq[::-1].translate(base_complements)
+            q = r.qual[::-1]
+        else:
+            s = r.seq
+            q = r.qual
+        xt_pos = xt_tag[0][1]
+        umi = s[xt_pos - 1:xt_pos - 1 + umi_length]
+        umi_qual = q[xt_pos - 1:xt_pos - 1 + umi_length]
+        # RX: UMI (possibly corrected), QX: quality score for RX
+        # OX: original UMI, BZ quality for original UMI
+        r.tags = r.tags + [('RX', umi)]
+    outfile.write(r)
+
+outfile.close()
+infile.close()
+CODE
 
         samtools view -h ~{ubamFile} \
         | Rscript --vanilla temp.R \
-        | gatk SamToFastq -I /dev/stdin -F $fastqFile --CLIPPING_ACTION X \
+        | gatk SamToFastq -I /dev/stdin -F ${fastqFile} --CLIPPING_ACTION X \
             --CLIPPING_ATTRIBUTE XT \
             --CLIPPING_MIN_LENGTH ~{clippingMinimumLength}
 
-        # TODO add parameter --runthreadN ~{threads} 
 
         STAR --runMode alignReads \
             --genomeDir star_work \
+            --runThreadN ~{threads} \
             --readFilesIn $fastqFile \
             --outSAMtype BAM Unsorted \
             --outFileNamePrefix aligned/~{sampleName}. \
             --outReadsUnmapped None \
+            --outSAMmultNmax 1 \
             --outSAMattributes All \
             --alignIntronMin 11 \
             --alignIntronMax 5000 \
@@ -212,14 +240,17 @@ task StarAlign {
             --alignSJDBoverhangMin 1 \
             --outFilterMismatchNmax 99 \
             --outSAMattrIHstart 0
+        
+        sorted_sam=$(mktemp)
+        samtools sort -n -O sam  aligned/~{sampleName}.Aligned.out.bam > ${sorted_sam}
 
-        samtools sort -n -O sam  aligned/~{sampleName}.Aligned.out.bam > sorted.sam
-
+        merged_bam=$(mktemp)
         gatk MergeBamAlignment --REFERENCE_SEQUENCE ~{refFasta} \
-            --ALIGNED sorted.sam \
+            --ALIGNED ${sorted_sam} \
             --UNMAPPED_BAM ~{ubamFile} \
-            --OUTPUT ~{bamResultName}
+            --OUTPUT ${merged_bam}
 
+        python extractumi.py > ~{bamResultName} < ${merged_bam}
     >>>
 
     # TODO glob the *.out and/or log files

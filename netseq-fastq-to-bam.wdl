@@ -28,6 +28,7 @@ workflow NETseq {
         File inputFastQ
         String sampleName = basename(basename(inputFastQ, ".gz"), ".fastq")
 
+        # environment
         String netseq_docker = 'rdshear/netseq'
     }
     if (!defined(starReferencesIn)) {
@@ -211,7 +212,8 @@ for r in infile.fetch(until_eof=True):
         # RX: UMI (possibly corrected), QX: quality score for RX
         # OX: original UMI, BZ quality for original UMI
         r.tags = r.tags + [('RX', umi)]
-    outfile.write(r)
+        # Only generate records with UMI's
+        outfile.write(r)
 
 outfile.close()
 infile.close()
@@ -248,9 +250,16 @@ CODE
         gatk MergeBamAlignment --REFERENCE_SEQUENCE ~{refFasta} \
             --ALIGNED ${sorted_sam} \
             --UNMAPPED_BAM ~{ubamFile} \
-            --OUTPUT ${merged_bam}
+            --OUTPUT ~{bamResultName}
 
-        python extractumi.py > ~{bamResultName} < ${merged_bam}
+#        with_umi_bam=$(mktemp)
+#        python extractumi.py > ${with_umi_bam} < ${merged_bam}
+
+#        gatk UmiAwareMarkDuplicatesWithMateCigar --INPUT ${with_umi_bam} \
+#            --METRICS_FILE ~{sampleName}.dedup_metrics.txt \
+#            --UMI_METRICS_FILE ~{sampleName}.umi_metrics.txt \
+#            --OUTPUT ~{bamResultName} \
+#            --REMOVE_DUPLICATES true
     >>>
 
     # TODO glob the *.out and/or log files
@@ -260,6 +269,9 @@ CODE
 
     runtime {
         docker: docker
+        memory: "8G"
+        cpu: 2
+
     }
 }
 

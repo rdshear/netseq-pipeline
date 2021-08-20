@@ -45,26 +45,18 @@ workflow NETseq {
     }
     File starReferences = select_first([StarGenerateReferences.star_genome_refs_zipped,starReferencesIn,""])
 
-    call fastqToSam {
-        input:
-            sampleName = sampleName,
-            Infile = inputFastQ,
-            docker = netseq_docker
-    }
-
     call StarAlign {
         input:
+            Infile = inputFastQ,
             star_genome_refs_zipped = starReferences,
             refFasta = refFasta,
-            ubamFile = fastqToSam.ubamFile,
             sampleName = sampleName,
             threads = threads,
             docker = netseq_docker
     }
 
     output {
-        File reads_unmapped_bams = fastqToSam.ubamFile
-        File adapter_metrix = fastqToSam.markAdapterMetrics
+        File adapter_metrix = StarAlign.markAdapterMetrics
         File? starReferencesOut = StarGenerateReferences.star_genome_refs_zipped
         Array[File]? starLogs = StarGenerateReferences.star_logs
         File output_bam = StarAlign.output_bam
@@ -113,47 +105,10 @@ task StarGenerateReferences {
     }
 }
 
-task fastqToSam {
-    input {
-        String sampleName
-        File Infile
-        String docker
-    }
-
-    String tempUbamFileName = '~{sampleName}.raw_unaligned.bam'
-    String ubamFileName = '~{sampleName}.unaligned.bam'
-
-    String metricsFileName = '~{sampleName}.markAdaptersMetrics.txt'
-
-    command <<<
-        set -e
-
-        gatk FastqToSam --FASTQ ~{Infile} \
-            --OUTPUT ~{tempUbamFileName} \
-            --SAMPLE_NAME ~{sampleName} \
-            --PLATFORM illumina \
-            --SORT_ORDER queryname
-
-        gatk MarkIlluminaAdapters --INPUT ~{tempUbamFileName} \
-            --OUTPUT ~{ubamFileName} \
-            --METRICS ~{metricsFileName} \
-            --THREE_PRIME_ADAPTER NNNNNNATCTCGTATGCCGTCTTCTGCTTG \
-            --FIVE_PRIME_ADAPTER GATCGGAAGAGCACACGTCTGAACTCCAGTCAC \
-            --ADAPTERS SINGLE_END
-    >>>
-
-    output {
-            File ubamFile = ubamFileName
-            File markAdapterMetrics = metricsFileName
-    }
-    runtime {
-        docker: docker
-    }
-}
 task StarAlign {
     input {
+        File Infile
         File star_genome_refs_zipped
-        File ubamFile
         File refFasta
         String sampleName
         Int clippingMinimumLength = 24 # TODO Parameterize
@@ -161,6 +116,9 @@ task StarAlign {
         Int threads = 8
         String docker
     }
+
+    String ubamFileName = '~{sampleName}.unaligned.bam'
+    String metricsFileName = '~{sampleName}.markAdaptersMetrics.txt'
 
     String bamResultName = "~{sampleName}.aligned.bam"
 
@@ -175,25 +133,24 @@ task StarAlign {
         then
             gatk CreateSequenceDictionary -R ~{refFasta}
         fi
-        
-        fastqFile=$(mktemp)
-
-        # Drop lines without adapters, as indicated by XT filename or STAR will break?
-        cat > temp.R <<CODE
-block_size <- 1000
-infile <- file("stdin")
-open(infile)
-while (length(x <- readLines(infile, n = block_size)) > 0 ) {
-    writeLines(x[startsWith(x, "@") | grepl("XT:i:", x, fixed = TRUE)])
-} 
-CODE
-
-        cat > extractumi.py <<CODE
+ 
+        gatk FastqToSam --FASTQ ~{Infile} \
+            --OUTPUT /dev/stdout \
+            --SAMPLE_NAME ~{sampleName} \
+            --PLATFORM illumina \
+            --SORT_ORDER queryname \
+        | gatk MarkIlluminaAdapters --INPUT /dev/stdin \
+            --OUTPUT /dev/stdout \
+            --METRICS ~{metricsFileName} \
+            --THREE_PRIME_ADAPTER NNNNNNATCTCGTATGCCGTCTTCTGCTTG \
+            --FIVE_PRIME_ADAPTER GATCGGAAGAGCACACGTCTGAACTCCAGTCAC \
+            --ADAPTERS SINGLE_END \
+| python3 <(cat <<CODE
 import pysam
 
 umi_length = 6
 base_complements = ''.maketrans({'A':'T', 'C':'G', 'G':'C', 'T':'A'})
-infile = pysam.AlignmentFile("/dev/stdin", mode="rb")
+infile = pysam.AlignmentFile("/dev/stdin", mode="rb", check_sq=False)
 outfile = pysam.AlignmentFile("/dev/stdout", mode="wb", template=infile)
 
 for r in infile.fetch(until_eof=True):
@@ -212,25 +169,22 @@ for r in infile.fetch(until_eof=True):
         # RX: UMI (possibly corrected), QX: quality score for RX
         # OX: original UMI, BZ quality for original UMI
         r.tags = r.tags + [('RX', umi)]
-        # Only generate records with UMI's
-        outfile.write(r)
+    outfile.write(r)
 
 outfile.close()
 infile.close()
 CODE
-
-        samtools view -h ~{ubamFile} \
-        | Rscript --vanilla temp.R \
-        | gatk SamToFastq -I /dev/stdin -F ${fastqFile} --CLIPPING_ACTION X \
+) \
+        | gatk SamToFastq -I /dev/stdin -F /dev/stdin --CLIPPING_ACTION X \
             --CLIPPING_ATTRIBUTE XT \
-            --CLIPPING_MIN_LENGTH ~{clippingMinimumLength}
+           --CLIPPING_MIN_LENGTH ~{clippingMinimumLength}
 
 
         STAR --runMode alignReads \
             --genomeDir star_work \
             --runThreadN ~{threads} \
             --readFilesIn $fastqFile \
-            --outSAMtype BAM Unsorted \
+            --outSAMtype BAM SortedByCoordinate \
             --outFileNamePrefix aligned/~{sampleName}. \
             --outReadsUnmapped None \
             --outSAMmultNmax 1 \
@@ -242,28 +196,13 @@ CODE
             --alignSJDBoverhangMin 1 \
             --outFilterMismatchNmax 99 \
             --outSAMattrIHstart 0
-        
-        sorted_sam=$(mktemp)
-        samtools sort -n -O sam  aligned/~{sampleName}.Aligned.out.bam > ${sorted_sam}
 
-        merged_bam=$(mktemp)
-        gatk MergeBamAlignment --REFERENCE_SEQUENCE ~{refFasta} \
-            --ALIGNED ${sorted_sam} \
-            --UNMAPPED_BAM ~{ubamFile} \
-            --OUTPUT ~{bamResultName}
-
-#        with_umi_bam=$(mktemp)
-#        python extractumi.py > ${with_umi_bam} < ${merged_bam}
-
-#        gatk UmiAwareMarkDuplicatesWithMateCigar --INPUT ${with_umi_bam} \
-#            --METRICS_FILE ~{sampleName}.dedup_metrics.txt \
-#            --UMI_METRICS_FILE ~{sampleName}.umi_metrics.txt \
-#            --OUTPUT ~{bamResultName} \
-#            --REMOVE_DUPLICATES true
+        mv aligned/~{sampleName}.Aligned.sortedByCoord.out.bam ~{bamResultName}
     >>>
 
     # TODO glob the *.out and/or log files
     output {
+        File markAdapterMetrics = metricsFileName
         File output_bam = bamResultName
     }
 

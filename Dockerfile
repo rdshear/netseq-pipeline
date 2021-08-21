@@ -7,6 +7,6 @@
 FROM condaforge/mambaforge
 LABEL Maintainer='Robert Shear <rshear@gmail.com>'
 
-RUN mamba install -c bioconda samtools gatk4 pysam star
+RUN mamba install -c bioconda samtools cutadapt gatk4 pysam star
 
 CMD ["/bin/bash"]

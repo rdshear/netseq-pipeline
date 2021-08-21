@@ -125,65 +125,58 @@ task StarAlign {
     command <<<
         set -e
 
-        tar -xvzf ~{star_genome_refs_zipped}
+        time tar -xvzf ~{star_genome_refs_zipped}
 
         # TODO: should be "along side" of local refFasta
         # TODO Refactor this line
+        # TODO: should be gzip?
         if [[ ! -f $(dirname ~{refFasta})/$(basename ~{refFasta} '.fa').dict ]]
         then
             gatk CreateSequenceDictionary -R ~{refFasta}
         fi
  
-        gatk FastqToSam --FASTQ ~{Infile} \
-            --OUTPUT /dev/stdout \
-            --SAMPLE_NAME ~{sampleName} \
-            --PLATFORM illumina \
-            --SORT_ORDER queryname \
-        | gatk MarkIlluminaAdapters --INPUT /dev/stdin \
-            --OUTPUT /dev/stdout \
+        samtools import -0  ~{Infile} | gatk SortSam --INPUT /dev/stdin --OUTPUT ~{ubamFileName} --SORT_ORDER coordinate
+
+        time gatk MarkIlluminaAdapters --INPUT ~{ubamFileName} \
+            --OUTPUT ~{sampleName}.withXTtag.bam \
             --METRICS ~{metricsFileName} \
             --THREE_PRIME_ADAPTER NNNNNNATCTCGTATGCCGTCTTCTGCTTG \
             --FIVE_PRIME_ADAPTER GATCGGAAGAGCACACGTCTGAACTCCAGTCAC \
-            --ADAPTERS SINGLE_END \
-| python3 <(cat <<CODE
-import pysam
+            --ADAPTERS SINGLE_END
 
+time python3 <(cat <<CODE
+import pysam
+# input: bam file with 3' adapter+bar code location at XT tag
+# output: bam file hard clipped with RX tag added, reads without adapters removed
 umi_length = 6
 base_complements = ''.maketrans({'A':'T', 'C':'G', 'G':'C', 'T':'A'})
 infile = pysam.AlignmentFile("/dev/stdin", mode="rb", check_sq=False)
-outfile = pysam.AlignmentFile("/dev/stdout", mode="wb", template=infile)
+outfile = pysam.AlignmentFile("/dev/stdout", mode="w", template=infile)
 
 for r in infile.fetch(until_eof=True):
     xt_tag = [i for i in filter(lambda x: x[0] == 'XT', r.tags)]
     if len(xt_tag) > 0:
-        # STAR translates seq to reverse complement, restore it to get true UMI
-        if r.is_reverse:
-            s = r.seq[::-1].translate(base_complements)
-            q = r.qual[::-1]
-        else:
-            s = r.seq
-            q = r.qual
+        s = r.seq
+        q = r.qual
         xt_pos = xt_tag[0][1]
         umi = s[xt_pos - 1:xt_pos - 1 + umi_length]
         umi_qual = q[xt_pos - 1:xt_pos - 1 + umi_length]
         # RX: UMI (possibly corrected), QX: quality score for RX
         # OX: original UMI, BZ quality for original UMI
+        r.seq = s[0:xt_pos]
+        r.qual = q[0:xt_pos]
         r.tags = r.tags + [('RX', umi)]
-    outfile.write(r)
+        outfile.write(r)
 
 outfile.close()
 infile.close()
 CODE
-) \
-        | gatk SamToFastq -I /dev/stdin -F /dev/stdin --CLIPPING_ACTION X \
-            --CLIPPING_ATTRIBUTE XT \
-           --CLIPPING_MIN_LENGTH ~{clippingMinimumLength}
-
-
-        STAR --runMode alignReads \
+ ) < ~{sampleName}.withXTtag.bam  \
+        | STAR --runMode alignReads \
             --genomeDir star_work \
             --runThreadN ~{threads} \
-            --readFilesIn $fastqFile \
+            --inputBAMfile \
+            --readFilesType SAM SE \
             --outSAMtype BAM SortedByCoordinate \
             --outFileNamePrefix aligned/~{sampleName}. \
             --outReadsUnmapped None \
@@ -197,9 +190,11 @@ CODE
             --outFilterMismatchNmax 99 \
             --outSAMattrIHstart 0
 
+        # TODO Should be tmp?
+        rm ~{sampleName}.withXTtag.bam  
         mv aligned/~{sampleName}.Aligned.sortedByCoord.out.bam ~{bamResultName}
     >>>
-
+    # TODO merge with uBAM?
     # TODO glob the *.out and/or log files
     output {
         File markAdapterMetrics = metricsFileName
@@ -209,7 +204,7 @@ CODE
     runtime {
         docker: docker
         memory: "8G"
-        cpu: 2
+        cpu: 3
 
     }
 }

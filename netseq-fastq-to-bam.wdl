@@ -148,9 +148,9 @@ time python3 <(cat <<CODE
 import pysam
 # input: bam file with 3' adapter+bar code location at XT tag
 # output: bam file hard clipped with RX tag added, reads without adapters removed
+# TODO: parameterize umi_length
 umi_length = 6
-base_complements = ''.maketrans({'A':'T', 'C':'G', 'G':'C', 'T':'A'})
-infile = pysam.AlignmentFile("/dev/stdin", mode="rb", check_sq=False)
+infile = pysam.AlignmentFile("~{sampleName}.withXTtag.bam", mode="rb", check_sq=False)
 outfile = pysam.AlignmentFile("/dev/stdout", mode="w", template=infile)
 
 for r in infile.fetch(until_eof=True):
@@ -171,11 +171,11 @@ for r in infile.fetch(until_eof=True):
 outfile.close()
 infile.close()
 CODE
- ) < ~{sampleName}.withXTtag.bam  \
+ )  \
         | STAR --runMode alignReads \
             --genomeDir star_work \
             --runThreadN ~{threads} \
-            --inputBAMfile \
+            --readFilesIn  /dev/stdin \
             --readFilesType SAM SE \
             --outSAMtype BAM SortedByCoordinate \
             --outFileNamePrefix aligned/~{sampleName}. \

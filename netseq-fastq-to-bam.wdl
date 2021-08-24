@@ -180,15 +180,10 @@ CODE
             --outSAMtype BAM SortedByCoordinate \
             --outFileNamePrefix aligned/~{sampleName}. \
             --outReadsUnmapped None \
-            --outSAMmultNmax 1 \
+            --outSAMmultNmax 999 \
             --outSAMattributes All \
-            --alignIntronMin 11 \
-            --alignIntronMax 5000 \
-            --outFilterType BySJout \
-            --alignSJoverhangMin 8 \
-            --alignSJDBoverhangMin 1 \
-            --outFilterMismatchNmax 99 \
-            --outSAMattrIHstart 0
+            --alignSJoverhangMin 1000 \
+            --outFilterMismatchNmax 99
 
         # TODO Should be tmp?
         rm ~{sampleName}.withXTtag.bam  
@@ -205,7 +200,6 @@ CODE
         docker: docker
         memory: "8G"
         cpu: 3
-
     }
 }
 

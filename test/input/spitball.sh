@@ -45,3 +45,28 @@ gatk MergeBamAlignment -R /ref/rds19/starRefFiles/genome/../sacCer3.fa \
         -O merge_alighments.sam
 
         
+###################### revert to bwa ... but with gatk
+bwa index ../inputs/-1031706207/sacCer3.fa
+
+
+
+gatk SamToFastq \
+I=xwt-1.aligned.bam \
+FASTQ=/dev/stdout \
+CLIPPING_ATTRIBUTE=XT CLIPPING_ACTION=2 INTERLEAVE=true NON_PF=true | \
+bwa mem -M -t 7 -p ../inputs/-1031706207/sacCer3.fa /dev/stdin > xwt-1.bwa.bam
+
+
+
+
+ | \
+SamToFastq -I xwt-1.aligned.bam -FASTQ /dev/stdout -CLIPPING_ATTRIBUTE XT -CLIPPING_ACTION 2 -INTERLEAVE true -NON_PF true | \
+gatk MergeBamAlignment \
+ALIGNED_BAM=/dev/stdin \
+UNMAPPED_BAM=xwt-1.revertsam.bam \
+OUTPUT=xwt-1.piped.bam \
+R=../inputs/-1031706207/sacCer3.fa CREATE_INDEX=true ADD_MATE_CIGAR=true \
+CLIP_ADAPTERS=false CLIP_OVERLAPPING_READS=true \
+INCLUDE_SECONDARY_ALIGNMENTS=true MAX_INSERTIONS_OR_DELETIONS=-1 \
+PRIMARY_ALIGNMENT_STRATEGY=MostDistant ATTRIBUTES_TO_RETAIN=XS \
+TMP_DIR=/path/shlee

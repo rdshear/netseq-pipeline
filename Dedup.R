@@ -5,9 +5,15 @@ library(rtracklayer)
 
 wd <- "/Users/robertshear/temp/outputs/"
 infile <- "wt-1.aligned.bam"
+
 range <- "chrVI:1-1000000"
 sample <- "wt-1"
 
+wd <- "/Users/robertshear/temp/outputs/"
+infile <- "xwt-1.aligned.bam"
+
+range <- NULL
+sample <- "xwt-1"
 
 
 timestamp(suffix = " Start")
@@ -22,9 +28,9 @@ readGAlignments(infile, use.names = FALSE, param = ScanBamParam(tag = "RX", whic
   as_tibble %>%
   group_by(seqnames, start, strand) %>%
   summarise(score = n_distinct(RX)) %>%
-  mutate(end=start) %>% 
+  mutate(end = start) %>% 
   GRanges -> result
-
+strand(result) <- if_else(as.vector(strand(result)) == '+', '-','+')
 timestamp(suffix = " Read Complete")
 
 for (strand in c("+", "-")) {

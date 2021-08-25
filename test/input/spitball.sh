@@ -1,72 +1,41 @@
-#! /bin/bash
-cd /work || return
-sampleName="xwt-1"
-Infile='/ref/GSE159603/xwt-1.fastq.gz'
-MinimumReadLength='24'
-#tmp=$(mktemp).sam
-ubamFileName='xwt-1.unaligned.sam'
-genomeRef='/ref/rds19/starRefFiles/genome/'
+time python3 <(cat <<CODE
+import pysam
+# input: bam file with 3' adapter code location at XT tag
+# output: bam file hard clipped with RX tag added, reads without adapters removed
+# TODO: parameterize umi_length
+umi_length = 6
+infile = pysam.AlignmentFile("xwt-1.withXTtag.bam", mode="rb", check_sq=False)
+outfile = pysam.AlignmentFile("/dev/stdout", mode="w", template=infile)
 
-gatk FastqToSam --FASTQ "${Infile}" \
-    --OUTPUT /dev/stdout \
-    --SM  ${sampleName} \
-    --PLATFORM illumina \
-    --SORT_ORDER queryname \
-| gatk MarkIlluminaAdapters -I /dev/stdin \
-        -O "${ubamFileName}" \
-        -M mia_metrix.txt \
-        --THREE_PRIME_ADAPTER NNNNNNATCTCGTATGCCGTCTTCTGCTTG \
-    --ADAPTERS SINGLE_END --FIVE_PRIME_ADAPTER GATCGGAAGAGCACACGTCTGAACTCCAGTCAC
+for r in infile.fetch(until_eof=True):
+    xt_tag = [i for i in filter(lambda x: x[0] == 'XT', r.tags)]
+    if len(xt_tag) > 0:
+        s = r.seq
+        q = r.qual
+        xt_pos = xt_tag[0][1]
+        umi = s[0:umi_length]
+        umi_qual = q[0:umi_length]
+        # TODO? Remove XT tag bcause the reads are trimmed
+        # RX: UMI (possibly corrected), QX: quality score for RX
+        # OX: original UMI, BZ quality for original UMI
+        r.seq = s[umi_length:xt_pos]
+        r.qual = q[umi_length:xt_pos]
+        r.tags = r.tags + [('RX', umi)]
+        outfile.write(r)
 
-
-gatk SamToFastq -I ${ubamFileName} -F tmp.fastq --CLIPPING_ACTION X \
-    --CLIPPING_ATTRIBUTE XT \
-    --CLIPPING_MIN_LENGTH ${MinimumReadLength}
-
-threads=3
-
-STAR --genomeDir ${genomeRef} --runthreadN ${threads} --readFilesIn tmp.fastq \
-         --outFileNamePrefix aligned/${sampleName}. \
-         --outReadsUnmapped None \
-        --outSAMattributes All \
-         --alignIntronMin 11 \
-         --alignIntronMax 5000 \
-         --outFilterType BySJout \
-         --alignSJoverhangMin 8 \
-         --alignSJDBoverhangMin 1 \
-         --outFilterMismatchNmax 99 \
-         --outSAMattrIHstart 0
-
-# TODO SORT by name
-
-gatk MergeBamAlignment -R /ref/rds19/starRefFiles/genome/../sacCer3.fa \
-        --ALIGNED aligned/xwt-1.Aligned.sortedByCoord.out.bam \
-        --UNMAPPED_BAM xwt-1.unaligned.sam \
-        -O merge_alighments.sam
-
-        
-###################### revert to bwa ... but with gatk
-bwa index ../inputs/-1031706207/sacCer3.fa
-
-
-
-gatk SamToFastq \
-I=xwt-1.aligned.bam \
-FASTQ=/dev/stdout \
-CLIPPING_ATTRIBUTE=XT CLIPPING_ACTION=2 INTERLEAVE=true NON_PF=true | \
-bwa mem -M -t 7 -p ../inputs/-1031706207/sacCer3.fa /dev/stdin > xwt-1.bwa.bam
-
-
-
-
- | \
-SamToFastq -I xwt-1.aligned.bam -FASTQ /dev/stdout -CLIPPING_ATTRIBUTE XT -CLIPPING_ACTION 2 -INTERLEAVE true -NON_PF true | \
-gatk MergeBamAlignment \
-ALIGNED_BAM=/dev/stdin \
-UNMAPPED_BAM=xwt-1.revertsam.bam \
-OUTPUT=xwt-1.piped.bam \
-R=../inputs/-1031706207/sacCer3.fa CREATE_INDEX=true ADD_MATE_CIGAR=true \
-CLIP_ADAPTERS=false CLIP_OVERLAPPING_READS=true \
-INCLUDE_SECONDARY_ALIGNMENTS=true MAX_INSERTIONS_OR_DELETIONS=-1 \
-PRIMARY_ALIGNMENT_STRATEGY=MostDistant ATTRIBUTES_TO_RETAIN=XS \
-TMP_DIR=/path/shlee
+outfile.close()
+infile.close()
+CODE
+ )  \
+        | STAR --runMode alignReads \
+            --genomeDir star_work \
+            --runThreadN 3 \
+            --readFilesIn  /dev/stdin \
+            --readFilesType SAM SE \
+            --outSAMtype BAM SortedByCoordinate \
+            --outFileNamePrefix aligned/xwt-1. \
+            --outSAMunmapped Within \
+            --outSAMmultNmax 1 \
+            --outSAMattributes All \
+            --alignSJoverhangMin 1000 \
+            --outFilterMismatchNmax 99

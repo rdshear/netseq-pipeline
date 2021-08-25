@@ -125,7 +125,12 @@ task StarAlign {
     command <<<
         set -e
 
-        time tar -xvzf ~{star_genome_refs_zipped}
+        # HACK temporary workaroud while working locally with docker desktop
+        # tar is 25x slower on mounted file system vs local disk,
+        #so copy from execution directory to /root
+        cp ~{star_genome_refs_zipped} /home/star_index.tar.gz
+        time tar -xvzf /home/star_index.tar.gz -C /home/
+
 
         # TODO: should be "along side" of local refFasta
         # TODO Refactor this line
@@ -140,13 +145,13 @@ task StarAlign {
         time gatk MarkIlluminaAdapters --INPUT ~{ubamFileName} \
             --OUTPUT ~{sampleName}.withXTtag.bam \
             --METRICS ~{metricsFileName} \
-            --THREE_PRIME_ADAPTER NNNNNNATCTCGTATGCCGTCTTCTGCTTG \
+            --THREE_PRIME_ADAPTER ATCTCGTATGCCGTCTTCTGCTTG \
             --FIVE_PRIME_ADAPTER GATCGGAAGAGCACACGTCTGAACTCCAGTCAC \
             --ADAPTERS SINGLE_END
 
 time python3 <(cat <<CODE
 import pysam
-# input: bam file with 3' adapter+bar code location at XT tag
+# input: bam file with 3' adapter code location at XT tag
 # output: bam file hard clipped with RX tag added, reads without adapters removed
 # TODO: parameterize umi_length
 umi_length = 6
@@ -159,12 +164,13 @@ for r in infile.fetch(until_eof=True):
         s = r.seq
         q = r.qual
         xt_pos = xt_tag[0][1]
-        umi = s[xt_pos - 1:xt_pos - 1 + umi_length]
-        umi_qual = q[xt_pos - 1:xt_pos - 1 + umi_length]
+        umi = s[0:umi_length]
+        umi_qual = q[0:umi_length]
+        # TODO? Remove XT tag bcause the reads are trimmed
         # RX: UMI (possibly corrected), QX: quality score for RX
         # OX: original UMI, BZ quality for original UMI
-        r.seq = s[0:xt_pos]
-        r.qual = q[0:xt_pos]
+        r.seq = s[umi_length:xt_pos]
+        r.qual = q[umi_length:xt_pos]
         r.tags = r.tags + [('RX', umi)]
         outfile.write(r)
 
@@ -173,14 +179,15 @@ infile.close()
 CODE
  )  \
         | STAR --runMode alignReads \
-            --genomeDir star_work \
-            --runThreadN ~{threads} \
+            --genomeDir /home/star_work \
+            --runThreadN 3 \
             --readFilesIn  /dev/stdin \
             --readFilesType SAM SE \
             --outSAMtype BAM SortedByCoordinate \
             --outFileNamePrefix aligned/~{sampleName}. \
-            --outReadsUnmapped None \
-            --outSAMmultNmax 999 \
+            --limitIObufferSize 200000000 \
+            --outReadsUnmapped Fastx \
+            --outSAMmultNmax 1 \
             --outSAMattributes All \
             --alignSJoverhangMin 1000 \
             --outFilterMismatchNmax 99

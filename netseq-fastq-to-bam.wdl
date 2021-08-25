@@ -185,12 +185,11 @@ CODE
             --readFilesType SAM SE \
             --outSAMtype BAM SortedByCoordinate \
             --outFileNamePrefix aligned/~{sampleName}. \
-            --limitIObufferSize 200000000 \
             --outReadsUnmapped Fastx \
             --outSAMmultNmax 1 \
             --outSAMattributes All \
             --alignSJoverhangMin 1000 \
-            --outFilterMismatchNmax 99
+            --outFilterMismatchNmax 99 
 
         # TODO Should be tmp?
         rm ~{sampleName}.withXTtag.bam  

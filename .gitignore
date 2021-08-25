@@ -40,6 +40,8 @@ vignettes/*.pdf
 
 # Test working directory
 /test/wd/
+/test/input/
+/test/star_work/
 
 # VS Code opgtions
 .vscode/

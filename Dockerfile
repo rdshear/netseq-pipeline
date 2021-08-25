@@ -10,4 +10,6 @@ LABEL Maintainer='Robert Shear <rshear@gmail.com>'
 # TODO drop pysam and bwa 
 RUN mamba install -c bioconda samtools cutadapt gatk4 pysam star bwa
 
+ADD scripts/ scripts/
+
 CMD ["/bin/bash"]

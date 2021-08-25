@@ -194,7 +194,6 @@ CODE
 
         # TODO Should be tmp?
         rm ~{sampleName}.withXTtag.bam  
-        mv aligned/~{sampleName}.Aligned.sortedByCoord.out.bam ~{bamResultName}
     >>>
     # TODO merge with uBAM?
     # TODO glob the *.out and/or log files

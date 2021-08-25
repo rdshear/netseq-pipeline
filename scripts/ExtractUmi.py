@@ -1,5 +1,6 @@
-#!/bin/bash python3
+#!/usr/bin/env python3
 import pysam
+import sys
 
 def ExtractUmi(InputBam, OutputBam, umi_length = 6, umi_tag = 'RX', adapter_trim_tag = 'XT'):
     # input: bam file with 3' adapter code location at XT tag
@@ -31,5 +32,9 @@ def ExtractUmi(InputBam, OutputBam, umi_length = 6, umi_tag = 'RX', adapter_trim
     return
 
 if __name__ == '__main__':
-    directory = '/Users/robertshear/Downloads/execution/'
-    ExtractUmi(InputBam = directory + 'xwt-1.withXTtag.bam', OutputBam = directory + 'xwt-1.trimmed.bam')
+    # directory = '/Users/robertshear/Downloads/execution/'
+    # ExtractUmi(InputBam = directory + 'xwt-1.withXTtag.bam', OutputBam = directory + 'xwt-1.trimmed.bam')
+    if len(sys.argv) < 6:
+        sys.exit("5 command line arguments expected")
+    ExtractUmi(InputBam=sys.argv[1], OutputBam=sys.argv[2], 
+        umi_length=int(sys.argv[3]), umi_tag=sys.argv[4], adapter_trim_tag=sys.argv[5])

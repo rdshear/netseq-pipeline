@@ -7,9 +7,10 @@
 FROM condaforge/mambaforge
 LABEL Maintainer='Robert Shear <rshear@gmail.com>'
 
-# TODO drop pysam and bwa 
+# TODO Add user and working directory
+# TODO drop unused packages
 RUN mamba install -c bioconda samtools cutadapt gatk4 pysam star bwa
 
-ADD scripts/ scripts/
+ADD scripts/ /scripts/
 
 CMD ["/bin/bash"]

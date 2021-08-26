@@ -32,6 +32,8 @@ def ExtractUmi(InputBam, OutputBam, umi_length = 6, umi_tag = 'RX', adapter_trim
     return
 
 if __name__ == '__main__':
+    # TODO Validate input
+    # TODO Run statistics
     # directory = '/Users/robertshear/Downloads/execution/'
     # ExtractUmi(InputBam = directory + 'xwt-1.withXTtag.bam', OutputBam = directory + 'xwt-1.trimmed.bam')
     if len(sys.argv) < 6:

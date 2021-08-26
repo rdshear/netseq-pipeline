@@ -1,27 +1,25 @@
+# Rscript --vanilla /scripts/Dedup.R <output-directory> <input-bam> <sample-name> [<GRanges string>]
 library(tidyverse)
 library(GenomicRanges)
 library(GenomicAlignments)
 library(rtracklayer)
 
-wd <- "/Users/robertshear/temp/outputs/"
-infile <- "wt-1.aligned.bam"
-
-range <- "chrVI:1-1000000"
-sample <- "wt-1"
-
-wd <- "/Users/robertshear/temp/outputs/"
-infile <- "xwt-1.aligned.bam"
-
-range <- NULL
-sample <- "xwt-1"
-
+rm(list = ls())
+args <- commandArgs(trailingOnly = TRUE)
+if (length(args) < 1) {
+  args <- c("/Users/robertshear/temp/outputs/", "xwt-1.aligned.bam", "xwt-1")
+}
+wd <- args[1]
+infile <- args[2]
+sample <- args[3]
+range <- args[4]
+if (is.na(range)) range <- NULL
 
 timestamp(suffix = " Start")
 
 setwd(wd)
 
 readGAlignments(infile, use.names = FALSE, param = ScanBamParam(tag = "RX", which= GRanges(range))) %>%
-  print %>%
   keep(qwidth(.) - width(.) > 0) %>%
   granges(use.mcols=TRUE) %>%
   resize(fix="start", ignore.strand=FALSE, width=1) %>%
@@ -38,3 +36,4 @@ for (strand in c("+", "-")) {
   export.bedGraph(result[as.character(strand(result)) == strand], outfile, index=TRUE)
   timestamp(suffix = paste("", outfile, " Export Complete"))
 }
+

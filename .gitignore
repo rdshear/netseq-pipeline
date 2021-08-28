@@ -42,6 +42,7 @@ vignettes/*.pdf
 /test/wd/
 /test/input/
 /test/star_work/
+/barcode_tests/
 
 # VS Code opgtions
 .vscode/

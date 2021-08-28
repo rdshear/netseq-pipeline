@@ -7,7 +7,7 @@ library(rtracklayer)
 rm(list = ls())
 args <- commandArgs(trailingOnly = TRUE)
 if (length(args) < 1) {
-  args <- c("/Users/robertshear/Projects/netseq-pipeline/test/wd/", "aligned.bam", "wt-1")
+  args <- c("/Users/robertshear/Projects/netseq-pipeline/test/wd/", "deduplicated.bam", "wt-1")
 }
 wd <- args[1]
 infile <- args[2]
@@ -19,13 +19,14 @@ timestamp(suffix = " Start")
 
 setwd(wd)
 
-(raw <- readGAlignments(infile, use.names = FALSE, param = ScanBamParam(tag = "RX", which= GRanges(range)))) %>%
-  keep(qwidth(.) - width(.) > 0 & seqnames != "chrM") %>%
+raw <- readGAlignments(infile, use.names = FALSE, param = ScanBamParam(tag = "RX", which= GRanges(range)))
+
+raw %>% keep(njunc(.) & as.character(seqnames(.)) != "chrM") %>%
   granges(use.mcols=TRUE) %>%
   resize(fix="start", ignore.strand=FALSE, width=1) %>%
   as_tibble %>%
   group_by(seqnames, start, strand) %>%
-  summarise(score = n_distinct(RX)) %>%
+  summarise(score = n()) %>%
   mutate(end = start) %>% 
   GRanges -> result
 

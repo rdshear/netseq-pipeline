@@ -118,6 +118,7 @@ task StarGenerateReferences {
     }
 }
 
+# TODO rename StarAlign to AlignReads
 task StarAlign {
     input {
         File Infile
@@ -152,6 +153,19 @@ task StarAlign {
             gatk CreateSequenceDictionary -R ~{refFasta}
         fi
  
+        # TODO replace with GATK tools
+        # TODO NOOP because quality is good and prinseq is soooo sloooooww
+        # gzcat ~{Infile} \
+        # | perl "$(which prinseq-lite.pl)" -fastq stdin \
+        #     -out_good stdout \
+        #     -out_bad ~{sampleName}.qcfail.fasta \
+        #     -no_qual_header \
+        #     -min_len 7 -min_qual_mean 20 -trim_right 1 -trim_ns_right 1 \
+        #     -trim_qual_right 20 -trim_qual_type min \
+        #     -trim_qual_window 1 -trim_qual_step 1 \
+        #     2>> ~{sampleName}.qc.log \
+        # | samtools import -0  /dev/stdin| gatk SortSam --INPUT /dev/stdin --OUTPUT ~{ubamFileName} --SORT_ORDER coordinate
+
         samtools import -0  ~{Infile} | gatk SortSam --INPUT /dev/stdin --OUTPUT ~{ubamFileName} --SORT_ORDER coordinate
 
         time gatk MarkIlluminaAdapters --INPUT ~{ubamFileName} \
@@ -163,12 +177,17 @@ task StarAlign {
 
         python3 /scripts/ExtractUmi.py ~{sampleName}.withXTtag.bam ~{sampleName}.withRXtag.bam 6 RX XT
         
+        # force the temp directory to the docker's disks
+        tempStarDir=$(mktemp -d)
+        # star wants to create the directory itself
+        rmdir "$tempStarDir"
         STAR --runMode alignReads \
             --genomeDir /home/star_work \
             --runThreadN ~{threads} \
             --readFilesIn ~{sampleName}.withRXtag.bam \
             --readFilesCommand samtools view \
             --readFilesType SAM SE \
+            --outTmpDir "$tempStarDir" \
             --outSAMtype BAM SortedByCoordinate \
             --outFileNamePrefix aligned/~{sampleName}. \
             --outReadsUnmapped Fastx \
@@ -187,6 +206,7 @@ task StarAlign {
     output {
         File markAdapterMetrics = metricsFileName
         File output_bam = bamResultName
+        # TODO Add the other log files
         Array[File] star_logs = glob('aligned/*.out')
     }
 

@@ -1,9 +1,10 @@
 # Rscript --vanilla /scripts/Dedup.R <output-directory> <input-bam> <sample-name> [<GRanges string>]
-library(tidyverse)
-library(GenomicRanges)
-library(GenomicAlignments)
-library(rtracklayer)
-
+suppressPackageStartupMessages({
+  library(tidyverse)
+  library(GenomicRanges)
+  library(GenomicAlignments)
+  library(rtracklayer)
+})
 rm(list = ls())
 args <- commandArgs(trailingOnly = TRUE)
 if (length(args) < 1) {

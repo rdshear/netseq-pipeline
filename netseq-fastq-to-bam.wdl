@@ -55,11 +55,24 @@ workflow NETseq {
             docker = netseq_docker
     }
 
+    call BamToBedgraph {
+        input:
+            AlignedBamFile = StarAlign.output_bam,
+            sampleName = sampleName,
+            threads = threads,
+            docker = netseq_docker
+    }
+
     output {
         File adapter_metrix = StarAlign.markAdapterMetrics
         File? starReferencesOut = StarGenerateReferences.star_genome_refs_zipped
+
         Array[File] starLogs = StarAlign.star_logs
         File output_bam = StarAlign.output_bam
+
+        File dedup_bam = BamToBedgraph.BamFileDeduped
+        Array[File] bedgraphs = BamToBedgraph.CoverageBedgraphs
+        Array[File] dedup_logs = BamToBedgraph.DedupLogs
     }
 }
 
@@ -111,7 +124,6 @@ task StarAlign {
         File star_genome_refs_zipped
         File refFasta
         String sampleName
-        Int clippingMinimumLength = 24 # TODO Parameterize
 
         Int threads = 8
         String docker
@@ -153,17 +165,20 @@ task StarAlign {
         
         STAR --runMode alignReads \
             --genomeDir /home/star_work \
-            --runThreadN 3 \
+            --runThreadN ~{threads} \
             --readFilesIn ~{sampleName}.withRXtag.bam \
             --readFilesCommand samtools view \
             --readFilesType SAM SE \
             --outSAMtype BAM SortedByCoordinate \
             --outFileNamePrefix aligned/~{sampleName}. \
             --outReadsUnmapped Fastx \
-            --outSAMmultNmax 1 \
-            --outSAMattributes All \
-            --alignSJoverhangMin 1000 \
-            --outFilterMismatchNmax 99 
+            --outFilterType BySJout \
+            --outFilterMultimapNmax 1 \
+            --alignSJoverhangMin 8 \
+            --alignSJDBoverhangMin 1 \
+            --outFilterMismatchNmax 999 \
+            --alignMatesGapMax 2000 \
+            --outSAMattrIHstart 0
 
         mv aligned/~{sampleName}.Aligned.sortedByCoord.out.bam ~{sampleName}.aligned.bam
     >>>
@@ -178,7 +193,45 @@ task StarAlign {
     runtime {
         docker: docker
         memory: "8G"
-        cpu: 3
+        cpu: threads
     }
 }
 
+task BamToBedgraph {
+    input {
+        File AlignedBamFile
+        String sampleName
+        String umi_tag = 'RX'
+        Int threads
+        String docker
+    }
+
+    String bamDedupName = "~{sampleName}.dedup.bam"
+
+    command <<<
+        set -e
+
+        samtools index ~{AlignedBamFile}
+        mamba run -n umi_tools umi_tools dedup -I ~{AlignedBamFile} \
+            --output-stats=~{sampleName}.dedup.stats.log \
+            --log=~{sampleName}.dedup.log \
+            -S ~{bamDedupName} \
+        --umi-tag=~{umi_tag} --extract-umi-method=tag
+
+        bedtools genomecov -5 -bg -strand - -ibam ~{bamDedupName} | gzip > ~{sampleName}.pos.bedgraph.gz
+        bedtools genomecov -5 -bg -strand + -ibam ~{bamDedupName} | gzip > ~{sampleName}.neg.bedgraph.gz
+    >>>
+
+        output {
+            File BamFileDeduped = bamDedupName
+            Array[File] CoverageBedgraphs = ['~{sampleName}.pos.bedgraph.gz', '~{sampleName}.neg.bedgraph.gz']
+            Array[File] DedupLogs = glob('*.log')
+    }
+
+    runtime {
+        docker: docker
+        memory: "8G"
+        cpu: threads
+    }
+
+}

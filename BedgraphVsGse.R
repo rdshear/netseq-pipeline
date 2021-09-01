@@ -1,4 +1,4 @@
-# Rspitball.R
+# BedgraphVsGse.R
 suppressPackageStartupMessages({
   library(tidyverse)
   library(GenomicRanges)
@@ -6,13 +6,6 @@ suppressPackageStartupMessages({
   library(rtracklayer)
   library(TxDb.Scerevisiae.UCSC.sacCer3.sgdGene)
 })
-
-
-infile <- "dd_200.bam"
-
-raw <- readGAlignments(infile, use.names = TRUE, param = ScanBamParam(tag = "RX"))
-bg_pos <- import("~/Projects/netseq-pipeline/barcode_tests/umi_tools_from_RX/dd_200.pos.bedgraph.bgz")
-bg_neg <- import("~/Projects/netseq-pipeline/barcode_tests/umi_tools_from_RX/dd_200.neg.bedgraph.bgz")
 
 new_pos <- import("~/Projects/netseq-pipeline/test_results/wt-1_20210829/outputs/wt-1.pos.bedgraph.gz", genome = "sacCer3")
 new_neg <- import("~/Projects/netseq-pipeline/test_results/wt-1_20210829/outputs/wt-1.neg.bedgraph.gz")
@@ -31,3 +24,29 @@ binIt <- function(u) {
 binned_pos_new <- binIt(new_pos)
 binned_pos_old <- binIt(old_pos)
 
+result <- cor(binned_pos_new$meanScore, binned_pos_old$meanScore)
+print(result)
+
+epsilon <- 1E-9
+result <- cor(log(binned_pos_new$meanScore + epsilon), log(binned_pos_old$meanScore + epsilon))
+print(result)
+
+
+v <- data.frame(new = binned_pos_new$meanScore, old = binned_pos_old$meanScore)
+plot(v)
+
+filter <- GRanges("chrIV:437850-437860")
+old_filtered <- subsetByOverlaps(old_pos, filter)
+print(old_filtered)
+new_filtered <- subsetByOverlaps(new_pos, filter)
+print(new_filtered)
+
+filtered_aligned <- readGAlignments("~/Projects/netseq-pipeline/test_results/wt-1_20210829/outputs/wt-1.aligned.bam", 
+                                    param = ScanBamParam(which = filter))
+
+old_wt2_pos <- import("/n/groups/churchman/GSE159603/GSM4835592_wt-2.pos.bedgraph.gz", genome = "sacCer3")
+subsetByOverlaps(old_wt2_pos, filter)
+
+bigidx <- (old_wt2_pos$score > 4000)
+old_wt2_pos[bigidx]
+print(old_wt2_pos[bigidx]$score)

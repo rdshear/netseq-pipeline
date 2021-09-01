@@ -30,6 +30,7 @@ workflow NETseq {
 
         # environment
         String netseq_docker = 'rdshear/netseq'
+        Int preemptible = 1
     }
     if (!defined(starReferencesIn)) {
         call StarGenerateReferences { 
@@ -40,7 +41,8 @@ workflow NETseq {
                 ref_fasta_index = refFastaIndex,
                 annotations_gtf = annotationsGTF,
                 read_length = starJunctionReadLength,
-                docker = netseq_docker
+                docker = netseq_docker,
+                preemptible = preemptible
         }
     }
     File starReferences = select_first([StarGenerateReferences.star_genome_refs_zipped,starReferencesIn,""])
@@ -52,7 +54,8 @@ workflow NETseq {
             refFasta = refFasta,
             sampleName = sampleName,
             threads = threads,
-            docker = netseq_docker
+            docker = netseq_docker,
+            preemptible = preemptible
     }
 
     call BamToBedgraph {
@@ -60,7 +63,8 @@ workflow NETseq {
             AlignedBamFile = StarAlign.output_bam,
             sampleName = sampleName,
             threads = threads,
-            docker = netseq_docker
+            docker = netseq_docker,
+            preemptible = preemptible
     }
 
     output {
@@ -85,6 +89,7 @@ task StarGenerateReferences {
         Int read_length
         Int threads = 8
         String docker
+        Int preemptible
     }
     String starRefsName = "star-~{genome}-refs.tar.gz"
     command <<<
@@ -115,6 +120,7 @@ task StarGenerateReferences {
     runtime {
         docker: docker
         cpu: threads
+        preemptible: preemptible
     }
 }
 
@@ -128,6 +134,7 @@ task StarAlign {
 
         Int threads = 8
         String docker
+        Int preemptible
     }
 
     String ubamFileName = '~{sampleName}.unaligned.bam'
@@ -136,6 +143,7 @@ task StarAlign {
     String bamResultName = "~{sampleName}.aligned.bam"
 
     command <<<
+        df
         set -e
 
         # HACK temporary workaroud while working locally with docker desktop
@@ -166,25 +174,25 @@ task StarAlign {
         #     2>> ~{sampleName}.qc.log \
         # | samtools import -0  /dev/stdin| gatk SortSam --INPUT /dev/stdin --OUTPUT ~{ubamFileName} --SORT_ORDER coordinate
 
-        samtools import -0  ~{Infile} | gatk SortSam --INPUT /dev/stdin --OUTPUT ~{ubamFileName} --SORT_ORDER coordinate
-
-        time gatk MarkIlluminaAdapters --INPUT ~{ubamFileName} \
+        samtools import -0  ~{Infile} | gatk SortSam --INPUT /dev/stdin --OUTPUT /dev/stdout --SORT_ORDER coordinate \
+        | gatk MarkIlluminaAdapters --INPUT /dev/stdin \
             --OUTPUT ~{sampleName}.withXTtag.bam \
             --METRICS ~{metricsFileName} \
             --THREE_PRIME_ADAPTER ATCTCGTATGCCGTCTTCTGCTTG \
             --FIVE_PRIME_ADAPTER GATCGGAAGAGCACACGTCTGAACTCCAGTCAC \
             --ADAPTERS SINGLE_END
 
-        python3 /scripts/ExtractUmi.py ~{sampleName}.withXTtag.bam ~{sampleName}.withRXtag.bam 6 RX XT
         
         # force the temp directory to the docker's disks
         tempStarDir=$(mktemp -d)
         # star wants to create the directory itself
         rmdir "$tempStarDir"
-        STAR --runMode alignReads \
+
+        python3 /scripts/ExtractUmi.py ~{sampleName}.withXTtag.bam /dev/stdout 6 RX XT \
+        | STAR --runMode alignReads \
             --genomeDir /home/star_work \
             --runThreadN ~{threads} \
-            --readFilesIn ~{sampleName}.withRXtag.bam \
+            --readFilesIn /dev/stdin \
             --readFilesCommand samtools view \
             --readFilesType SAM SE \
             --outTmpDir "$tempStarDir" \
@@ -200,6 +208,8 @@ task StarAlign {
             --outSAMattrIHstart 0
 
         mv aligned/~{sampleName}.Aligned.sortedByCoord.out.bam ~{sampleName}.aligned.bam
+
+        df
     >>>
     # TODO merge with uBAM?
     # TODO glob the *.out and/or log files
@@ -214,6 +224,8 @@ task StarAlign {
         docker: docker
         memory: "8G"
         cpu: threads
+        disks: "local-disk 25 SSD"
+        preemptible: preemptible
     }
 }
 
@@ -222,13 +234,16 @@ task BamToBedgraph {
         File AlignedBamFile
         String sampleName
         String umi_tag = 'RX'
+
         Int threads
         String docker
+        Int preemptible
     }
 
     String bamDedupName = "~{sampleName}.dedup.bam"
 
     command <<<
+        df
         set -e
 
         samtools index ~{AlignedBamFile}
@@ -240,6 +255,7 @@ task BamToBedgraph {
 
         bedtools genomecov -5 -bg -strand - -ibam ~{bamDedupName} | gzip > ~{sampleName}.pos.bedgraph.gz
         bedtools genomecov -5 -bg -strand + -ibam ~{bamDedupName} | gzip > ~{sampleName}.neg.bedgraph.gz
+        df
     >>>
 
         output {
@@ -252,6 +268,7 @@ task BamToBedgraph {
         docker: docker
         memory: "8G"
         cpu: threads
+        preemptible: preemptible
     }
 
 }

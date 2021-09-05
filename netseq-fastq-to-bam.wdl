@@ -21,6 +21,8 @@ workflow NETseq {
         File? starReferencesIn
         File refFasta
         File refFastaIndex
+        Int MultimapNmax = 1
+        # TODO Drop...no junctions allowed!
         File annotationsGTF
         Int starJunctionReadLength = 50 # maximum number of bases to concatanate between donor and acceptor sides of splice junction 
 
@@ -53,6 +55,7 @@ workflow NETseq {
             star_genome_refs_zipped = starReferences,
             refFasta = refFasta,
             sampleName = sampleName,
+            MultimapNmax = MultimapNmax,
             threads = threads,
             docker = netseq_docker,
             preemptible = preemptible
@@ -131,6 +134,7 @@ task StarAlign {
         File star_genome_refs_zipped
         File refFasta
         String sampleName
+        Int MultimapNmax
 
         Int threads = 8
         String docker
@@ -200,7 +204,7 @@ task StarAlign {
             --outFileNamePrefix aligned/~{sampleName}. \
             --outReadsUnmapped Fastx \
             --outFilterType BySJout \
-            --outFilterMultimapNmax 1 \
+            --outFilterMultimapNmax ~{MultimapNmax} \
             --alignSJoverhangMin 8 \
             --alignSJDBoverhangMin 1 \
             --outFilterMismatchNmax 999 \

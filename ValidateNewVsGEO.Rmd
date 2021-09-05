@@ -1,0 +1,127 @@
+---
+title: 'Evaluating a new pipeline for NET-seq data from  GSE159603'
+author:
+output: html_notebook
+params:
+  case: ["geo", "new"]
+  prefix: ["/n/groups/churchman/GSE159603/", "~/Projects/netseq-pipeline/test_results/wt-1_20210829/outputs/"]
+  samples: ["wt-1"]
+  tileSize: 1000
+  sampleProportion: 0.1
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(message = FALSE)
+suppressPackageStartupMessages({
+  library(GenomicRanges)
+  library(GenomicAlignments)
+  library(rtracklayer)
+  
+  library(TxDb.Scerevisiae.UCSC.sacCer3.sgdGene)
+  library(BSgenome.Scerevisiae.UCSC.sacCer3)
+  
+  library(kableExtra)
+  library(Gviz)
+  
+  # Tidyverse declared last ... bioconductor homonyms will be masked (e.g. select)
+  library(tidyverse)
+  library(glue)
+
+  })
+```
+## Introduction
+
+The GEO data series GSE159603, "Dynamics of transcription elongation are finely-tuned by dozens of regulatory factors (baker's yeast)".
+
+Reads->Bedgraph
+
+New pipeline. Validate vs GEO results
+
+```{r load.bedgraphs}
+strandtab <- c(pos="+", neg="-")
+sacCer3Ranges <- SeqinfoForBSGenome("sacCer3")
+
+set.seed(20210902)
+
+# TODO announce tile size
+tiles <- unlist(tileGenome(sacCer3Ranges, tilewidth = params$tileSize))
+if (params$sampleProportion < 1) {
+  tiles <- sample(tiles, length(tiles) * params$sampleProportion)
+}
+
+# Create ab, the 'score' data for all the cases
+crossing(sample = params$samples, caseid = seq_along(params$case), strand = names(strandtab)) %>% 
+  mutate(case = params$case[caseid], dir = params$prefix[caseid]) %>%
+  mutate(name = glue_data(., "{case}.{sample}.{strand}")) %>%
+  # get the bedgraph files as GRanges
+  mutate(bedgraph = map(glue_data(., "{dir}{sample}.{strand}.bedgraph.gz"), 
+                        import.bedGraph, genome = "sacCer3")) %>%
+  # Drop chrM from the GRanges
+  mutate(bedgraph = map(dropSeqlevels, "chrM", pruning.mode = "coarse")) %>%
+  # Keep an rleScore version each bedgraph GRanges 
+  mutate(rleScore =  map(bedgraph, function(u) 
+    replace_na(mcolAsRleList(u, "score"), 0))) -> ab
+
+# TODO Report counts
+```
+
+
+```{r}
+ab %>% 
+  mutate(enframe(lapply(map(ab$rleScore, sum), 
+                function(u) u / seqlengths(sacCer3Ranges)), 
+                name = "idx", value = "chrDensity")) %>%
+  select(sample, case, strand, chrDensity) %>%
+  unnest_longer(col = chrDensity, indices_to = "seqname") %>%
+  mutate(seqname = factor(seqname, levels = seqlevels(sacCer3Ranges))) -> occXchr
+  # pivot_wider(names_from = case, 
+  #             values_from = chrDensity, 
+  #             names_prefix = "occupancy_") %>%
+  # mutate(change_in_mean_occupancy = occupancy_new / occupancy_geo) -> occXchr
+
+ggplot(occXchr, aes(x = seqname, y = chrDensity, group = case, col = case)) + geom_point() + facet_wrap(vars(strand), ncol = 1)
+
+occXchr %>% group_by(sample, strand, seqname) %>% spread(seqname) %>% kable()
+  
+```
+
+
+```{r}
+binIt <- function(u) {
+  result <- binnedAverage(tiles, replace_na(mcolAsRleList(u, "score"), 0), "meanScore", na.rm=TRUE)
+  result$normalized <- result$meanScore / mean(result$meanScore)
+  result
+}
+
+binned_pos_new <- binIt(new_pos)
+binned_pos_old <- binIt(old_pos)
+
+```
+
+```{r}
+result <- cor(binned_pos_new$meanScore, binned_pos_old$meanScore, method="kendall")
+print(result)
+
+epsilon <- 1E-9
+result <- cor(log(binned_pos_new$meanScore + epsilon), log(binned_pos_old$meanScore + epsilon))
+print(result)
+
+
+v <- data.frame(new = binned_pos_new$meanScore, old = binned_pos_old$meanScore)
+plot(v)
+
+filter <- GRanges("chrIV:437850-437860")
+old_filtered <- subsetByOverlaps(old_pos, filter)
+print(old_filtered)
+new_filtered <- subsetByOverlaps(new_pos, filter)
+print(new_filtered)
+
+filtered_aligned <- readGAlignments("~/Projects/netseq-pipeline/test_results/wt-1_20210829/outputs/wt-1.aligned.bam", 
+                                    param = ScanBamParam(which = filter))
+
+old_wt2_pos <- import("/n/groups/churchman/GSE159603/GSM4835592_wt-2.pos.bedgraph.gz", genome = "sacCer3")
+subsetByOverlaps(old_wt2_pos, filter)
+
+bigidx <- (old_wt2_pos$score > 4000)
+old_wt2_pos[bigidx]
+print(old_wt2_pos[bigidx]$score)```

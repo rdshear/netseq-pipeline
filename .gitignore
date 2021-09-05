@@ -13,7 +13,7 @@
 /*.Rcheck/
 # RStudio files
 .Rproj.user/
-netseq-pipeline.Rproj.Rproj
+netseq-pipeline.Rproj
 # produced vignettes
 vignettes/*.html
 vignettes/*.pdf

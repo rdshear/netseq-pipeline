@@ -29,7 +29,7 @@ suppressPackageStartupMessages({
   # Tidyverse declared last ... bioconductor homonyms will be masked (e.g. select)
   library(tidyverse)
   library(glue)
-
+  library(plyranges)
   })
 
 set.seed(20210902)
@@ -68,10 +68,39 @@ ab <- crossing(sample = params$samples, caseid = seq_along(params$case), strand 
                         import.bedGraph, genome = "sacCer3"),
                       dropSeqlevels, 
                         "chrM", pruning.mode = "coarse"),
-        rleScore = map(bedgraph, 
-              function(u) replace_na(mcolAsRleList(u, "score"), 0)))
-
+        occ_tiled = map(ab$bedgraph, function(u) (join_overlap_intersect(u, tiles) %>%
+                      mutate(occ = score * width(.))) %>%
+                      join_overlap_left(tiles, .) %>%
+                      group_by(seqnames, start, end)  %>% 
+                      summarize(occ = sum(occ, na.rm = TRUE)))
+                    )
+###WIP HERE....^^^^^
 # TODO Report counts
+```
+
+```{r}
+
+tiles <- GenomicRanges::trim(tiles)
+tiles$id <- seq_along(tiles)
+
+y <- map(ab$bedgraph, function(u)
+    (join_overlap_intersect(u, tiles) %>%
+      mutate(occ = score * width(.))) %>%
+      join_overlap_left(tiles, .) %>%
+      group_by(seqnames, start, end)  %>% 
+      summarize(occ = sum(occ, na.rm = TRUE)))
+
+# y <- map(ab$bedgraph, function(u) 
+#     (join_overlap_intersect(u, tiles) %>% 
+#       mutate(occ = score * width(.))) %>% 
+#       as_tibble() %>%
+#       group_by(id) %>% 
+#       summarize(x = sum(occ)) %>%
+#       mutate(chr = seqnames(tiles[id]), start = start(tiles[id]))
+#     )
+#     
+# z <- y %>% mutate(ext  = score * width(.)) %>% group_by(id) %>% summarize(x = sum(occ))
+
 ```
 
 ```{r}
@@ -101,7 +130,12 @@ ts <- ab %>%
   transmute(sample, strand, case, 
             bins = map(ab$rleScore, function(u)
                          binnedAverage(tiles, u, "meanScore", na.rm=TRUE)),
-            bin_means = map(bins, function(u) u$meanScore)) %>%
+            bin_means = map(bins, function(u) {
+                r <- u$meanScore
+                names(r) <- seq_along(r)
+                r
+            })
+  ) %>%
   group_by(sample, strand)
 
 # HACK vectors long-to-wide (is there a native way to do this in tidyverse?)
@@ -113,6 +147,10 @@ ts_comp <- group_keys(ts) %>%
 ts_comp %>% mutate(kendalls_tau = 
            map(ts_comp$runs, function(u) 
              cor(u[[1]], u[[2]], method = "kendall")))
+
+ts_data <- ts %>% mutate(bins = NULL) %>%
+  group_by(sample, strand, case) %>% unnest_longer(bin_means) %>%
+  pivot_wider(id_cols = c(sample, strand), names_from = case, values_from = bin_means)
 
 ```
 

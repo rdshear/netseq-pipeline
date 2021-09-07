@@ -6,7 +6,7 @@ params:
   case: ["geo", "new"]
   prefix: ["/n/groups/churchman/GSE159603/", "~/Projects/netseq-pipeline/test_results/wt-1_20210829/outputs/"]
   samples: ["wt-1"]
-  tileSize: 1000
+  tileSize: 100
   sampleProportion: 0.1
 editor_options: 
   markdown: 
@@ -60,101 +60,98 @@ if (params$sampleProportion < 1) {
 # bedgraph - The GRranges from the bedgraph file (with mito chromosome removed)
 # rleScore - An Integer Rle of occupancy 
 #   (one for each chromosome, see GenomicRanges::moclAsRleList for structure)
-ab <- crossing(sample = params$samples, caseid = seq_along(params$case), strand = names(strandtab)) %>% 
-  mutate(case = params$case[caseid], dir = params$prefix[caseid],
+ab <- crossing(sample = params$samples, caseid = seq_along(params$case), strand = names(strandtab)) %>%   mutate(case = params$case[caseid], dir = params$prefix[caseid],
          name = glue_data(., "{case}.{sample}.{strand}"),
         bedgraph = map(
                       map(glue_data(., "{dir}{sample}.{strand}.bedgraph.gz"), 
                         import.bedGraph, genome = "sacCer3"),
                       dropSeqlevels, 
-                        "chrM", pruning.mode = "coarse"),
-        occ_tiled = map(ab$bedgraph, function(u) (join_overlap_intersect(u, tiles) %>%
-                      mutate(occ = score * width(.))) %>%
-                      join_overlap_left(tiles, .) %>%
-                      group_by(seqnames, start, end)  %>% 
-                      summarize(occ = sum(occ, na.rm = TRUE)))
-                    )
-###WIP HERE....^^^^^
+                        "chrM", pruning.mode = "coarse")) %>%
+        mutate(occ_tiled = map(.$bedgraph, function(u) (join_overlap_intersect(u, tiles) %>%
+                  mutate(occ = score * width(.)) %>%
+                  join_overlap_left(tiles, .) %>%
+                  group_by(seqnames, start, end)  %>% 
+                  summarize(occ = sum(occ, na.rm = TRUE), maxocc = replace_na(max(occ) ,0)) %>%
+                  as_tibble())
+                  )
+              )
+
+
 # TODO Report counts
 ```
 
 ```{r}
+o_segs <- ab %>% 
+  unnest(occ_tiled) %>% 
+  mutate(len = end - start + 1) %>%
+  group_by(sample, strand, case, seqnames)
 
-tiles <- GenomicRanges::trim(tiles)
-tiles$id <- seq_along(tiles)
+o_tiles <- o_segs %>% 
+  summarize(occ = sum(occ, na.rm = TRUE), len = sum(len, na.rm = TRUE)) %>%
+  mutate(density = occ / len)
 
-y <- map(ab$bedgraph, function(u)
-    (join_overlap_intersect(u, tiles) %>%
-      mutate(occ = score * width(.))) %>%
-      join_overlap_left(tiles, .) %>%
-      group_by(seqnames, start, end)  %>% 
-      summarize(occ = sum(occ, na.rm = TRUE)))
+ggplot(o_tiles, aes(x = seqnames, y = density, group = case, col = case)) + geom_point() + facet_wrap(vars(sample, strand), ncol = 1)
 
-# y <- map(ab$bedgraph, function(u) 
-#     (join_overlap_intersect(u, tiles) %>% 
-#       mutate(occ = score * width(.))) %>% 
-#       as_tibble() %>%
-#       group_by(id) %>% 
-#       summarize(x = sum(occ)) %>%
-#       mutate(chr = seqnames(tiles[id]), start = start(tiles[id]))
-#     )
-#     
-# z <- y %>% mutate(ext  = score * width(.)) %>% group_by(id) %>% summarize(x = sum(occ))
+o_tiles %>% pivot_wider(id_cols = c(sample, strand, case), names_from = seqnames, values_from = density) %>% kable(digits = 3)  %>% kable_styling()
 
 ```
 
 ```{r}
-ab %>% 
-  mutate(enframe(lapply(map(ab$rleScore, sum), 
-                function(u) u / seqlengths(sacCerRangeNoMito)), 
-                name = "idx", value = "chrDensity")) %>%
-  select(sample, case, strand, chrDensity) %>%
-  unnest_longer(col = chrDensity, indices_to = "seqname") %>%
-  mutate(seqname = factor(seqname, levels = seqlevels(sacCerRangeNoMito))) %>%
-  relocate(strand, .after = sample) %>%
-  relocate(seqname, .after = case) -> occXchr
 
-ggplot(occXchr, aes(x = seqname, y = chrDensity, group = case, col = case)) + geom_point() + facet_wrap(vars(strand), ncol = 1)
-
-occXchr %>% group_by(sample, strand, seqname) %>% spread(seqname, chrDensity) %>% kable(digits = 3)  %>% kable_styling()
-  
-```
-
-
-
-```{r} 
-tiled_scores = map(ab$rleScore, 
-     function(u) binnedAverage(tiles, u, "meanScore", na.rm=TRUE)$meanScore)
-
-ts <- ab %>% 
-  transmute(sample, strand, case, 
-            bins = map(ab$rleScore, function(u)
-                         binnedAverage(tiles, u, "meanScore", na.rm=TRUE)),
-            bin_means = map(bins, function(u) {
-                r <- u$meanScore
-                names(r) <- seq_along(r)
-                r
-            })
-  ) %>%
+dta <- o_segs %>%
+  mutate(density = occ / len) %>%
+  pivot_wider(id_cols = c(sample, strand, seqnames, start), 
+              names_from = case, values_from = density) %>%
   group_by(sample, strand)
 
-# HACK vectors long-to-wide (is there a native way to do this in tidyverse?)
-ts_comp <- group_keys(ts) %>% 
-  mutate(runs = map(group_split(ts),
-                function(u) list(u$bin_means[[1]], u$bin_means[[2]])), 
-         geo = runs[[1]], new = runs[[2]])
- 
-ts_comp %>% mutate(kendalls_tau = 
-           map(ts_comp$runs, function(u) 
-             cor(u[[1]], u[[2]], method = "kendall")))
+dta %>% 
+  summarize(tau = cor(geo, new, method = "kendall")) %>% 
+  kable(digits = 3) %>% kable_styling()
 
-ts_data <- ts %>% mutate(bins = NULL) %>%
-  group_by(sample, strand, case) %>% unnest_longer(bin_means) %>%
-  pivot_wider(id_cols = c(sample, strand), names_from = case, values_from = bin_means)
+ggplot(dta, aes(x = geo, y = new)) + 
+  geom_point(color = 'blue', alpha = 0.1) + 
+  facet_wrap(vars(sample, strand), ncol = 1)  + 
+  scale_x_log10() + 
+  scale_y_log10()
 
+dtb <- o_segs %>% 
+  group_by(sample, strand, case) %>% 
+  transmute(sample, strand, case, seqnames, start, density = occ / len)
+
+
+ggplot(dtb, aes(case, density)) + 
+  geom_boxplot(aes(fill = case)) +
+  facet_wrap(~sample + strand) +
+  scale_y_log10()
 ```
+## What accounts for the density difference?
+
+It looks like it is throughout.
 
 ```{r}
+q <- ab %>% mutate(q = map(.$bedgraph, 
+                      function(u) quantile(rep(u$score, width(u)), c(0,.25,.75,seq(.9,.99,.01),seq(.991,1,.001))))) %>% 
+  select(q) %>% 
+  unnest_wider(q)
+
+kable(t(q), col.names = ab$name, caption = "Occupancy quantiles") %>% kable_styling()
+
+
+max_sample_index <- which.max(apply(q, 1, max))
+max_score_loc <- (function(u) u[which.max(u$score)])(ab$bedgraph[[max_sample_index]])
+
+```
+## Biggest peaks
+
+The highest peak for geo is wildly higher than the higest peaks for new.
+The highest peak for wt-1 geo is in sample `r ab$name[max_sample_index]`.
+at location `r max_score_loc`.
+
+
+```{r eval=FALSE}
+
+
+
 v <- data.frame(new = binned_pos_new$meanScore, old = binned_pos_old$meanScore)
 plot(v)
 filter <- GRanges("chrIV:437850-437860")
@@ -172,3 +169,6 @@ old_wt2_pos[bigidx]
 print(old_wt2_pos[bigidx]$score)
 ```
 
+```{r}
+sessionInfo()
+```

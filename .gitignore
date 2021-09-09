@@ -35,3 +35,4 @@ vignettes/*.pdf
 # VS Code opgtions
 .vscode/
 ValidateNewVsGEO.nb.html
+.RDataTmp*

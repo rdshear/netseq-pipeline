@@ -147,17 +147,50 @@ The highest peak for geo is wildly higher than the higest peaks for new.
 The highest peak for wt-1 geo is in sample `r ab$name[max_sample_index]`.
 at location `r max_score_loc`.
 
-```{r eval=FALSE}
-# TODO WIP
+```{r}
 
-ab1 <- ab %>% #mutate(bedgraph = map(.$bedgraph, function(u) u[1:100])) %>%
+# plyranges does not currently (Sep-2021) have full outer join, 
+#   so we'll fill in zeros to make the inner join
+
+join_overlap_full_outer <- function(a, b) {
+  x <- join_overlap_intersect(a,b)
+  y <- join_overlap_intersect(a, complement_ranges(b))
+  names(mcols(y)) <- "score.x"
+  y$score.y = 0
+  z <- join_overlap_intersect(complement_ranges(a), b)
+  mcols(z) = list(score.x = rep(0, length(z)), score.y = z$score)
+  foo <- sort(unlist(GRangesList(list(x, y, z))))
+  }
+
+
+ab1 <- ab %>%  
+  # mutate(bedgraph = map(.$bedgraph, function(u) u[51:75])) %>%
   pivot_wider(id_cols = c(sample, strand), names_from = case, values_from = bedgraph) %>%
-  mutate(ov = map2(geo, new, function(u, v) find_overlaps(u,v)))
+  mutate(ov = map2(geo, new, function(u, v) {
+              x <- join_overlap_full_outer(u, v)
+              x$diff <- x$score.x - x$score.y
+              x
+            })
+     ) %>%
+  mutate(nt_occ = map_int(.$ov, function(u) sum(width(u))),
+            nt_free = map_int(.$ov, function(u) sum(width(filter(gaps(u), as.character(strand) == '*')))),
+            nt_diff = sum(seqlengths(sacCerRangeNoMito)) - nt_occ - nt_free)
 
-# TODO: add the zeroes: DEBUG needed
-sum(width(gaps(ov, ignore.strand = TRUE)))
+# TODO descriptives here
+u <- rep(ab1$ov[[1]])
+x <- rep(u$diff, width(u))
+close.x <- x[abs(x) < 11]
+far.x <- x[abs(x) >= 11]
 
-```   
+tbl.close <- table(close.x)
+print(tbl.close)
+print(tbl.close / length(x))
+
+
+head(sort(far.x, decreasing = TRUE), n = 100)
+
+
+```
 
 ```{r eval=FALSE}
 v <- data.frame(new = binned_pos_new$meanScore, old = binned_pos_old$meanScore)

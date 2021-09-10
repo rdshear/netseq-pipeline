@@ -36,3 +36,4 @@ vignettes/*.pdf
 .vscode/
 ValidateNewVsGEO.nb.html
 .RDataTmp*
+knitted

@@ -1,10 +1,14 @@
 ---
-title: 'Evaluating a new pipeline for NET-seq data from  GSE159603'
-author:
-output:  BiocStyle::html_document
+title: 'Validating a new computational pipeline for NET-seq data from GSE159603'
+author: Robert D. Shear
+output: BiocStyle::html_document
+knit: (function(inputFile, encoding) {
+  rmarkdown::render(inputFile, encoding = encoding,
+   output_dir = "./knitted", ) })
 params:
   case: ["geo", "new"]
-  prefix: ["/n/groups/churchman/GSE159603/", "~/Projects/netseq-pipeline/test_results/wt-1_20210829/outputs/"]
+  prefix: ["/n/groups/churchman/GSE159603/", 
+    "~/Projects/netseq-pipeline/test_results/wt-1_20210829/outputs/"]
   samples: ["wt-1"]
   tileSize: 100
   sampleProportion: 0.1
@@ -12,37 +16,66 @@ editor_options:
   markdown: 
     wrap: 72
 ---
-
-```{r setup, include=FALSE}
+```{r setup, include=TRUE, message=FALSE}
+options(digits = 3)
 knitr::opts_chunk$set(message = FALSE)
-suppressPackageStartupMessages({
-  library(GenomicRanges)
-  library(GenomicAlignments)
-  library(rtracklayer)
-  
-  library(TxDb.Scerevisiae.UCSC.sacCer3.sgdGene)
-  library(BSgenome.Scerevisiae.UCSC.sacCer3)
-  
-  library(kableExtra)
-  library(Gviz)
-  
-  # Tidyverse declared last ... bioconductor homonyms will be masked (e.g. select)
-  library(tidyverse)
-  library(glue)
-  library(plyranges)
-  })
 
+library(GenomicRanges)
+library(GenomicAlignments)
+library(rtracklayer)
+
+library(TxDb.Scerevisiae.UCSC.sacCer3.sgdGene)
+library(BSgenome.Scerevisiae.UCSC.sacCer3)
+
+library(kableExtra)
+library(Gviz)
+
+# Tidyverse declared last...bioconductor homonyms will be masked (e.g. select)
+library(tidyverse)
+library(glue)
+library(plyranges)
+
+# For repeatably
 set.seed(20210902)
 ```
 
-## Introduction
+# Introduction
 
-The GEO data series GSE159603, "Dynamics of transcription elongation are
+This working paper compares the results of a new NET-seq read-to-occupancy pipeline with published results from the Churchman Lab's NET-seq screen data set.
+
+## Background
+
+The Churchman Lab conducted NET-seq 42 strains of _S. Cerevisiae_ each missing a known elongation factor, recently released in the GEO data series GSE159603, 
+"Dynamics of transcription elongation are
 finely-tuned by dozens of regulatory factors (baker's yeast)".
 
-Reads-\>Bedgraph
+I used the wild type controls from this data set for my 2020 thesis, _Inferring High Resolution Transcription Elongation Dynamics from Native Elongating Transcript Sequencing (NET-seq)._
+As part of my investigation, I created a revision of the lab's existing sequence read to RNAPII occupancy count (FASTQ-to-bedgraph) pipeline. 
 
-New pipeline. Validate vs GEO results
+I am now preparing a paper for publication based on this thesis.
+In looking back at this software, I decided to investigate modernizing the pipeline.
+My modifications took place from 2016 to 2019 and the original software predates this.
+There have been several significant improvements in the relivant tools and techniques.
+
+I have created a new NET-seq FASTQ-to-bedgraph pipeline with the following characteristics
+
+- Adoption of Broad Institue published best practices where applicable and practical
+- Cromwell scientific workflow manager vs. bash / Snakemake / slurm
+- GATK4 vs. custom scripts
+- continue use of SAMTOOLS and BEDTOOLS in conjuction with GAtK4 where appropriate
+- umi-tools (and possibly others) for UMI processing
+
+
+## Data Sources
+
+The published results are bedgraph files downloaded from the GEO repository. 
+Our trial results were processed on the terra.bio /Google Cloud Platform using the pipeline at [TBS] label [TBS]
+
+We will refer to these two cases as `r params$case`.
+
+The data sources used in this run are given in the table below.
+We have removed all reads that map to the mitochondrial chomosome (chrM).
+
 
 ```{r load.bedgraphs}
 strandtab <- c(pos="+", neg="-")
@@ -60,25 +93,34 @@ if (params$sampleProportion < 1) {
 # bedgraph - The GRranges from the bedgraph file (with mito chromosome removed)
 # rleScore - An Integer Rle of occupancy 
 #   (one for each chromosome, see GenomicRanges::moclAsRleList for structure)
-ab <- crossing(sample = params$samples, caseid = seq_along(params$case), strand = names(strandtab)) %>%   mutate(case = params$case[caseid], dir = params$prefix[caseid],
+ab <- crossing(sample = params$samples, caseid = seq_along(params$case), strand = names(strandtab)) %>%   
+  mutate(case = params$case[caseid], dir = params$prefix[caseid],
          name = glue_data(., "{case}.{sample}.{strand}"),
         bedgraph = map(
                       map(glue_data(., "{dir}{sample}.{strand}.bedgraph.gz"), 
                         import.bedGraph, genome = "sacCer3"),
                       dropSeqlevels, 
                         "chrM", pruning.mode = "coarse")) %>%
-        mutate(occ_tiled = map(.$bedgraph, function(u) (join_overlap_intersect(u, tiles) %>%
-                  mutate(occ = score * width(.)) %>%
-                  join_overlap_left(tiles, .) %>%
-                  group_by(seqnames, start, end)  %>% 
-                  summarize(occ = sum(occ, na.rm = TRUE), maxocc = replace_na(max(occ) ,0)) %>%
-                  as_tibble())
-                  )
-              )
+    mutate(occ_tiled = map(.$bedgraph, function(u) (join_overlap_intersect(u, tiles) %>%
+              mutate(occ = score * width(.)) %>%
+              join_overlap_left(tiles, .) %>%
+              group_by(seqnames, start, end)  %>% 
+              summarize(occ = sum(occ, na.rm = TRUE), maxocc = replace_na(max(occ) ,0)) %>%
+              as_tibble())
+              ),
+           bedgraph.rows = map_int(.$bedgraph, length)
+  ) %>%
+  mutate(mean.density = map_dbl(.$bedgraph, 
+                     function(u) sum(width(u) * u$score) / sum(seqlengths(sacCerRangeNoMito))))
 
 
-# TODO Report counts
+ab %>% select(sample, strand, case, bedgraph.rows, mean.density) %>%
+  kable() %>% kable_styling(latex_options = "scale_down")
+
 ```
+
+
+
 
 ```{r}
 o_segs <- ab %>% 
@@ -92,7 +134,7 @@ o_tiles <- o_segs %>%
 
 ggplot(o_tiles, aes(x = seqnames, y = density, group = case, col = case)) + geom_point() + facet_wrap(vars(sample, strand), ncol = 1)
 
-o_tiles %>% pivot_wider(id_cols = c(sample, strand, case), names_from = seqnames, values_from = density) %>% kable(digits = 3)  %>% kable_styling()
+o_tiles %>% pivot_wider(id_cols = c(sample, strand, case), names_from = seqnames, values_from = density) %>% kable()  %>% kable_styling()
 
 ```
 
@@ -106,7 +148,7 @@ dta <- o_segs %>%
 
 dta %>% 
   summarize(tau = cor(geo, new, method = "kendall")) %>% 
-  kable(digits = 3) %>% kable_styling()
+  kable() %>% kable_styling()
 
 ggplot(dta, aes(x = geo, y = new)) + 
   geom_point(color = 'blue', alpha = 0.1) + 
@@ -144,8 +186,7 @@ max_score_loc <- (function(u) u[which.max(u$score)])(ab$bedgraph[[max_sample_ind
 ## Biggest peaks
 
 The highest peak for geo is wildly higher than the higest peaks for new.
-The highest peak for wt-1 geo is in sample `r ab$name[max_sample_index]`.
-at location `r max_score_loc`.
+The highest peak for wt-1 geo is at `r paste0(ab$name[max_sample_index], "::", max_score_loc)`.
 
 ```{r}
 

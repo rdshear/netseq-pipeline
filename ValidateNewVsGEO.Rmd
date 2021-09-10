@@ -1,7 +1,7 @@
 ---
 title: 'Validating a new computational pipeline for NET-seq data from GSE159603'
 author: Robert D. Shear
-output: BiocStyle::html_document
+output: BiocStyle::pdf_document
 knit: (function(inputFile, encoding) {
   rmarkdown::render(inputFile, encoding = encoding,
    output_dir = "./knitted", ) })
@@ -27,6 +27,7 @@ library(rtracklayer)
 library(TxDb.Scerevisiae.UCSC.sacCer3.sgdGene)
 library(BSgenome.Scerevisiae.UCSC.sacCer3)
 
+library(magick)
 library(kableExtra)
 library(Gviz)
 
@@ -71,10 +72,12 @@ I have created a new NET-seq FASTQ-to-bedgraph pipeline with the following chara
 The published results are bedgraph files downloaded from the GEO repository. 
 Our trial results were processed on the terra.bio /Google Cloud Platform using the pipeline at [TBS] label [TBS]
 
-We will refer to these two cases as `r params$case`.
+We will refer to these two cases as `r paste0(params$case[1], " and ", params$case[2])` respectively.
 
 The data sources used in this run are given in the table below.
 We have removed all reads that map to the mitochondrial chomosome (chrM).
+
+## Processing
 
 
 ```{r load.bedgraphs}
@@ -82,7 +85,6 @@ strandtab <- c(pos="+", neg="-")
 sacCer3Ranges <- SeqinfoForBSGenome("sacCer3")
 sacCerRangeNoMito <- dropSeqlevels(sacCer3Ranges, "chrM")
 
-# TODO announce tile size
 tiles <- unlist(tileGenome(sacCerRangeNoMito, tilewidth = params$tileSize))
 if (params$sampleProportion < 1) {
   tiles <- sort(sample(tiles, length(tiles) * params$sampleProportion))
@@ -93,7 +95,8 @@ if (params$sampleProportion < 1) {
 # bedgraph - The GRranges from the bedgraph file (with mito chromosome removed)
 # rleScore - An Integer Rle of occupancy 
 #   (one for each chromosome, see GenomicRanges::moclAsRleList for structure)
-ab <- crossing(sample = params$samples, caseid = seq_along(params$case), strand = names(strandtab)) %>%   
+ab <- crossing(sample = params$samples, caseid = seq_along(params$case), 
+               strand = names(strandtab)) %>%   
   mutate(case = params$case[caseid], dir = params$prefix[caseid],
          name = glue_data(., "{case}.{sample}.{strand}"),
         bedgraph = map(
@@ -101,28 +104,42 @@ ab <- crossing(sample = params$samples, caseid = seq_along(params$case), strand 
                         import.bedGraph, genome = "sacCer3"),
                       dropSeqlevels, 
                         "chrM", pruning.mode = "coarse")) %>%
-    mutate(occ_tiled = map(.$bedgraph, function(u) (join_overlap_intersect(u, tiles) %>%
+    mutate(occ_tiled = map(.$bedgraph, 
+             function(u) (join_overlap_intersect(u, tiles) %>%
               mutate(occ = score * width(.)) %>%
               join_overlap_left(tiles, .) %>%
               group_by(seqnames, start, end)  %>% 
-              summarize(occ = sum(occ, na.rm = TRUE), maxocc = replace_na(max(occ) ,0)) %>%
+              summarize(occ = sum(occ, na.rm = TRUE), 
+                        maxocc = replace_na(max(occ) ,0)) %>%
               as_tibble())
               ),
            bedgraph.rows = map_int(.$bedgraph, length)
   ) %>%
-  mutate(mean.density = map_dbl(.$bedgraph, 
-                     function(u) sum(width(u) * u$score) / sum(seqlengths(sacCerRangeNoMito))))
+  mutate(mean.density = map_dbl(.$bedgraph, function(u) 
+    sum(width(u) * u$score) / sum(seqlengths(sacCerRangeNoMito))))
 
 
 ab %>% select(sample, strand, case, bedgraph.rows, mean.density) %>%
-  kable() %>% kable_styling(latex_options = "scale_down")
+  kable(caption = "Bedgraph file contents") %>% 
+  kable_styling()
 
 ```
+Note that the mean densities of the _new_ samples are substantially lower than
+those of the _geo_ samples. 
+
+Both pipelines intend to remove duplicates, so i would expect the mean densities 
+to be almost identical.
+
+## Gross Correspondence 
+
+I divided the genome into `r params$tileSize` nucleotide tiles and 
+selected a random sample of `r params$sampleProportion * 100`% of the tiles to
+see if how correlated the two cases were at this level.
 
 
+```{r Examine.Tiles}
 
 
-```{r}
 o_segs <- ab %>% 
   unnest(occ_tiled) %>% 
   mutate(len = end - start + 1) %>%
@@ -132,9 +149,20 @@ o_tiles <- o_segs %>%
   summarize(occ = sum(occ, na.rm = TRUE), len = sum(len, na.rm = TRUE)) %>%
   mutate(density = occ / len)
 
-ggplot(o_tiles, aes(x = seqnames, y = density, group = case, col = case)) + geom_point() + facet_wrap(vars(sample, strand), ncol = 1)
+ggplot(o_tiles, aes(x = seqnames, y = density, group = case, col = case)) + 
+  geom_point() + facet_wrap(vars(sample, strand), ncol = 1) +
+  labs(title = "Mean occupancy / nt by chromosome")
 
-o_tiles %>% pivot_wider(id_cols = c(sample, strand, case), names_from = seqnames, values_from = density) %>% kable()  %>% kable_styling()
+x <- o_tiles %>% 
+  pivot_wider(id_cols = c(sample, strand, case), 
+              names_from = seqnames, values_from = density)
+
+# HACK  brute force to split the table in two
+lapply(list(x[, 1:11], x[, c(1:3, 12:19)]), function(u) {
+    kable(u, booktabs = TRUE, caption = "Mean occupancy / nt by chromosome") %>%
+    kable_styling() %>%
+    print()
+})
 
 ```
 

@@ -37,3 +37,4 @@ vignettes/*.pdf
 ValidateNewVsGEO.nb.html
 .RDataTmp*
 knitted
+*.log

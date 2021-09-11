@@ -255,7 +255,8 @@ task BamToBedgraph {
             --output-stats=~{sampleName}.dedup.stats.log \
             --log=~{sampleName}.dedup.log \
             -S ~{bamDedupName} \
-        --umi-tag=~{umi_tag} --extract-umi-method=tag
+            --method unique \
+            --umi-tag=~{umi_tag} --extract-umi-method=tag
 
         bedtools genomecov -5 -bg -strand - -ibam ~{bamDedupName} | gzip > ~{sampleName}.pos.bedgraph.gz
         bedtools genomecov -5 -bg -strand + -ibam ~{bamDedupName} | gzip > ~{sampleName}.neg.bedgraph.gz

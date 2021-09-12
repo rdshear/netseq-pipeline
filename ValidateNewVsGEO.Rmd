@@ -8,8 +8,8 @@ knit: (function(inputFile, encoding) {
 params:
   case: ["geo", "new"]
   prefix: ["/n/groups/churchman/GSE159603/", 
-    "~/Projects/netseq-pipeline/test_results/wt-1_20210829/outputs/"]
-  samples: ["wt-1"]
+    "/Users/robertshear/Documents/n/groups/churchman/rds19/data/S005/"]
+  samples: ["wt-1", "wt-2"]
   tileSize: 100
   sampleProportion: 0.1
 editor_options: 
@@ -189,7 +189,7 @@ dta_tau <- dta %>%
 
 ggplot(dta, aes(x = geo, y = new,)) +
   geom_point(color = 'blue', alpha = 0.1) +
-  facet_grid(.~ sample + strand, ) +
+  facet_grid(sample  strand) +
   scale_x_log10() +
   scale_y_log10() +
   coord_equal() +
@@ -218,7 +218,7 @@ max_score_loc <- (function(u) u[which.max(u$score)])(ab$bedgraph[[max_sample_ind
 The highest peak for geo is wildly higher than the higest peaks for new.
 The highest peak for wt-1 geo is at `r paste0(ab$name[max_sample_index], "::", max_score_loc)`.
 
-```{r nt.res.comparison}
+```{r nt.resolution.comp}
 
 # plyranges does not currently (Sep-2021) have full outer join, 
 #   so we'll fill in zeros to make the inner join
@@ -230,46 +230,33 @@ join_overlap_full_outer <- function(a, b) {
   y$score.y = 0
   z <- join_overlap_intersect(complement_ranges(a), b)
   mcols(z) = list(score.x = rep(0, length(z)), score.y = z$score)
-  foo <- sort(unlist(GRangesList(list(x, y, z))))
-  }
-
+  sort(unlist(GRangesList(list(x, y, z))))
+}
 
 ab1 <- ab %>%  
-  # mutate(bedgraph = map(.$bedgraph, function(u) u[51:75])) %>%
-  pivot_wider(id_cols = c(sample, strand), names_from = case, values_from = bedgraph) %>%
+  pivot_wider(id_cols = c(sample, strand), 
+        names_from = case, values_from = bedgraph) %>%
   mutate(ov = map2(geo, new, function(u, v) {
-              x <- join_overlap_full_outer(u, v)
-              x$diff <- x$score.x - x$score.y
-              x$magnitude <- as.integer(log10(abs(x$diff)))
-              x
-            })
-     ) %>%
+        x <- join_overlap_full_outer(u, v)
+        x$diff <- x$score.x - x$score.y
+        x$magnitude <- as.integer(log10(abs(x$diff)))
+        x
+      })
+   ) %>%
   mutate(nt_occ = map_int(.$ov, function(u) sum(width(u))),
-            nt_free = map_int(.$ov, function(u) sum(width(filter(gaps(u), as.character(strand) == '*')))),
-            nt_diff = sum(seqlengths(sacCerRangeNoMito)) - nt_occ - nt_free)
+      nt_free = map_int(.$ov, function(u) 
+      sum(width(filter(gaps(u), as.character(strand) == '*')))),
+      nt_diff = sum(seqlengths(sacCerRangeNoMito)) - nt_occ - nt_free) %>%
+  mutate(diffs = map(.$ov, function(u) {
+      as_tibble(u) %>% 
+      mutate(balance = ifelse(score.x > score.y, -1, score.x < score.y)) %>%
+      group_by(balance, magnitude) %>% 
+      summarize(n = sum(width), diff_sum = sum(width * diff, na.rm = TRUE))
+    })
+  )
 
-# TODO descriptives here
-u <- ab1$ov[[1]]
-u %>% 
-  group_by(magnitude) %>% 
-  summarize(n = sum(width), diff_sum = sum(width * diff, na.rm = TRUE))
-
-
-x <- rep(u$diff, width(u))
-s <- split(x, ifelse(x < 0, -1, ifelse(x == 0, 0, 1)))
-diff_bins <- sapply(s, length)
-v <- list(as.integer(log10(-s[[1]])), as.integer(log10(s[[3]])))
-
-w <- v[[1]]
-split(w,)
-
-tbl.close <- table(close.x)
-print(tbl.close)
-print(tbl.close / length(x))
-
-
-head(sort(far.x, decreasing = TRUE), n = 100)
-
+ggplot((ab1 %>% unnest(diffs)), aes(x = magnitude, y = n)) + 
+  geom_col() + scale_y_log10() + facet_wrap(vars(sample, strand, balance))
 
 ```
 

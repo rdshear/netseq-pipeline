@@ -3,7 +3,5 @@
   "NETseq.genome": "sacCer3",
   "NETseq.refFasta": "/n/groups/churchman/ucsc_golden_path/sacCer3.fa", 
   "NETseq.refFastaIndex": "/n/groups/churchman/ucsc_golden_path/sacCer3.fa.fai", 
-  "NETseq.starJunctionReadLength": 40, 
-  "NETseq.annotationsGTF": "/n/groups/churchman/ucsc_golden_path/genes/sacCer3.ncbiRefSeq.gtf", 
   "NETseq.inputFastQ": "/Users/robertshear/Projects/netseq-pipeline/test/input/xwt-1.fastq.gz"
 }

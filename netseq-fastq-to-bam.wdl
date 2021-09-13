@@ -169,6 +169,7 @@ task StarAlign {
             --outFileNamePrefix aligned/~{sampleName}. \
             --outReadsUnmapped Fastx \
             --outFilterMultimapNmax ~{MultimapNmax} \
+            --limitBAMsortRAM 4000000000 \
             --clip3pAdapterSeq ATCTCGTATGCCGTCTTCTGCTTG \
             --clip3pNbases 0 \
             --clip5pNbases 6  \

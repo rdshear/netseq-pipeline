@@ -22,9 +22,6 @@ workflow NETseq {
         File refFasta
         File refFastaIndex
         Int MultimapNmax = 1
-        # TODO Drop...no junctions allowed!
-        File annotationsGTF
-        Int starJunctionReadLength = 50 # maximum number of bases to concatanate between donor and acceptor sides of splice junction 
 
         # Unprocessed reads
         File inputFastQ
@@ -41,8 +38,6 @@ workflow NETseq {
                 genome = genome,
                 ref_fasta = refFasta,
                 ref_fasta_index = refFastaIndex,
-                annotations_gtf = annotationsGTF,
-                read_length = starJunctionReadLength,
                 docker = netseq_docker,
                 preemptible = preemptible
         }
@@ -71,7 +66,6 @@ workflow NETseq {
     }
 
     output {
-        File adapter_metrix = StarAlign.markAdapterMetrics
         File? starReferencesOut = StarGenerateReferences.star_genome_refs_zipped
 
         Array[File] starLogs = StarAlign.star_logs
@@ -88,8 +82,6 @@ task StarGenerateReferences {
         String genome
         File ref_fasta
         File ref_fasta_index
-        File annotations_gtf
-        Int read_length
         Int threads = 8
         String docker
         Int preemptible
@@ -98,19 +90,16 @@ task StarGenerateReferences {
     command <<<
         set -e
 
-        source activate gatk
-    
         mkdir star_work
 
         # TODO should be optional parameters (14 is default, 10 recommended for sacCer3)
+        # or can compute by size of fasta ... round(log(.) / 2 - 1, 0)
         STAR \
         --runMode genomeGenerate \
         --runThreadN ~{threads} \
         --genomeDir star_work \
         --genomeFastaFiles ~{ref_fasta} \
-        --sjdbGTFfile ~{annotations_gtf} \
-        --genomeSAindexNbases 10 \
-        --sjdbOverhang ~{read_length} \
+        --genomeSAindexNbases 10
 
         tar -zcvf ~{starRefsName} star_work
     >>>
@@ -141,9 +130,6 @@ task StarAlign {
         Int preemptible
     }
 
-    String ubamFileName = '~{sampleName}.unaligned.bam'
-    String metricsFileName = '~{sampleName}.markAdaptersMetrics.txt'
-
     String bamResultName = "~{sampleName}.aligned.bam"
 
     command <<<
@@ -165,34 +151,13 @@ task StarAlign {
             gatk CreateSequenceDictionary -R ~{refFasta}
         fi
  
-        # TODO replace with GATK tools
-        # TODO NOOP because quality is good and prinseq is soooo sloooooww
-        # gzcat ~{Infile} \
-        # | perl "$(which prinseq-lite.pl)" -fastq stdin \
-        #     -out_good stdout \
-        #     -out_bad ~{sampleName}.qcfail.fasta \
-        #     -no_qual_header \
-        #     -min_len 7 -min_qual_mean 20 -trim_right 1 -trim_ns_right 1 \
-        #     -trim_qual_right 20 -trim_qual_type min \
-        #     -trim_qual_window 1 -trim_qual_step 1 \
-        #     2>> ~{sampleName}.qc.log \
-        # | samtools import -0  /dev/stdin| gatk SortSam --INPUT /dev/stdin --OUTPUT ~{ubamFileName} --SORT_ORDER coordinate
-
-        samtools import -0  ~{Infile} | gatk SortSam --INPUT /dev/stdin --OUTPUT /dev/stdout --SORT_ORDER coordinate \
-        | gatk MarkIlluminaAdapters --INPUT /dev/stdin \
-            --OUTPUT ~{sampleName}.withXTtag.bam \
-            --METRICS ~{metricsFileName} \
-            --THREE_PRIME_ADAPTER ATCTCGTATGCCGTCTTCTGCTTG \
-            --FIVE_PRIME_ADAPTER GATCGGAAGAGCACACGTCTGAACTCCAGTCAC \
-            --ADAPTERS SINGLE_END
-
-        
         # force the temp directory to the docker's disks
         tempStarDir=$(mktemp -d)
         # star wants to create the directory itself
         rmdir "$tempStarDir"
 
-        python3 /scripts/ExtractUmi.py ~{sampleName}.withXTtag.bam /dev/stdout 6 RX XT \
+        samtools import -0 ~{Infile} | \
+        python3 /scripts/ExtractUmi.py /dev/stdin /dev/stdout 6 RX \
         | STAR --runMode alignReads \
             --genomeDir /home/star_work \
             --runThreadN ~{threads} \
@@ -203,22 +168,19 @@ task StarAlign {
             --outSAMtype BAM SortedByCoordinate \
             --outFileNamePrefix aligned/~{sampleName}. \
             --outReadsUnmapped Fastx \
-            --outFilterType BySJout \
             --outFilterMultimapNmax ~{MultimapNmax} \
-            --alignSJoverhangMin 8 \
-            --alignSJDBoverhangMin 1 \
-            --outFilterMismatchNmax 999 \
-            --alignMatesGapMax 2000 \
-            --outSAMattrIHstart 0
+            --clip3pAdapterSeq ATCTCGTATGCCGTCTTCTGCTTG \
+            --clip3pNbases 0 \
+            --clip5pNbases 6  \
+            --alignIntronMax 1
 
-        mv aligned/~{sampleName}.Aligned.sortedByCoord.out.bam ~{sampleName}.aligned.bam
 
-        df
-    >>>
-    # TODO merge with uBAM?
+        mv  aligned/~{sampleName}.Aligned.sortedByCoord.out.bam  \
+            ~{sampleName}.aligned.bam
+>>>
+
     # TODO glob the *.out and/or log files
     output {
-        File markAdapterMetrics = metricsFileName
         File output_bam = bamResultName
         # TODO Add the other log files
         Array[File] star_logs = glob('aligned/*.out')

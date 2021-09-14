@@ -15,12 +15,9 @@ workflow NETseq {
 
         # general environment
         Int threads = 8
-        String genome
 
         # Genome source for STAR
-        File? starReferencesIn
         File refFasta
-        File refFastaIndex
         Int MultimapNmax = 1
 
         # Unprocessed reads
@@ -31,23 +28,10 @@ workflow NETseq {
         String netseq_docker = 'rdshear/netseq'
         Int preemptible = 1
     }
-    if (!defined(starReferencesIn)) {
-        call StarGenerateReferences { 
-            input:
-                threads = threads,
-                genome = genome,
-                ref_fasta = refFasta,
-                ref_fasta_index = refFastaIndex,
-                docker = netseq_docker,
-                preemptible = preemptible
-        }
-    }
-    File starReferences = select_first([StarGenerateReferences.star_genome_refs_zipped,starReferencesIn,""])
 
     call StarAlign {
         input:
             Infile = inputFastQ,
-            star_genome_refs_zipped = starReferences,
             refFasta = refFasta,
             sampleName = sampleName,
             MultimapNmax = MultimapNmax,
@@ -66,7 +50,6 @@ workflow NETseq {
     }
 
     output {
-        File? starReferencesOut = StarGenerateReferences.star_genome_refs_zipped
 
         Array[File] starLogs = StarAlign.star_logs
         File output_bam = StarAlign.output_bam
@@ -77,50 +60,10 @@ workflow NETseq {
     }
 }
 
-task StarGenerateReferences {
-    input {
-        String genome
-        File ref_fasta
-        File ref_fasta_index
-        Int threads = 8
-        String docker
-        Int preemptible
-    }
-    String starRefsName = "star-~{genome}-refs.tar.gz"
-    command <<<
-        set -e
-
-        mkdir star_work
-
-        # TODO should be optional parameters (14 is default, 10 recommended for sacCer3)
-        # or can compute by size of fasta ... round(log(.) / 2 - 1, 0)
-        STAR \
-        --runMode genomeGenerate \
-        --runThreadN ~{threads} \
-        --genomeDir star_work \
-        --genomeFastaFiles ~{ref_fasta} \
-        --genomeSAindexNbases 10
-
-        tar -zcvf ~{starRefsName} star_work
-    >>>
-
-    output {
-        Array[File] star_logs = glob("*.out")
-        File star_genome_refs_zipped = starRefsName
-    }
-
-    runtime {
-        docker: docker
-        cpu: threads
-        preemptible: preemptible
-    }
-}
-
 # TODO rename StarAlign to AlignReads
 task StarAlign {
     input {
         File Infile
-        File star_genome_refs_zipped
         File refFasta
         String sampleName
         Int MultimapNmax
@@ -133,23 +76,18 @@ task StarAlign {
     String bamResultName = "~{sampleName}.aligned.bam"
 
     command <<<
-        df
         set -e
 
-        # HACK temporary workaroud while working locally with docker desktop
-        # tar is 25x slower on mounted file system vs local disk,
-        #so copy from execution directory to /root
-        cp ~{star_genome_refs_zipped} /home/star_index.tar.gz
-        time tar -xvzf /home/star_index.tar.gz -C /home/
+        cp ~{refFasta} ./sacCer3.fa
+        samtools faidx sacCer3.fa
+        gatk CreateSequenceDictionary -R ./sacCer3.fa
 
-
-        # TODO: should be "along side" of local refFasta
-        # TODO Refactor this line
-        # TODO: should be gzip?
-        if [[ ! -f $(dirname ~{refFasta})/$(basename ~{refFasta} '.fa').dict ]]
-        then
-            gatk CreateSequenceDictionary -R ~{refFasta}
-        fi
+        STAR \
+        --runMode genomeGenerate \
+        --runThreadN ~{threads} \
+        --genomeDir star_work \
+        --genomeFastaFiles ./sacCer3.fa \
+        --genomeSAindexNbases 10
  
         # force the temp directory to the docker's disks
         tempStarDir=$(mktemp -d)
@@ -159,7 +97,7 @@ task StarAlign {
         samtools import -0 ~{Infile} | \
         python3 /scripts/ExtractUmi.py /dev/stdin /dev/stdout 6 RX \
         | STAR --runMode alignReads \
-            --genomeDir /home/star_work \
+            --genomeDir star_work \
             --runThreadN ~{threads} \
             --readFilesIn /dev/stdin \
             --readFilesCommand samtools view \
@@ -223,7 +161,6 @@ task BamToBedgraph {
 
         bedtools genomecov -5 -bg -strand - -ibam ~{bamDedupName} | gzip > ~{sampleName}.pos.bedgraph.gz
         bedtools genomecov -5 -bg -strand + -ibam ~{bamDedupName} | gzip > ~{sampleName}.neg.bedgraph.gz
-        df
     >>>
 
         output {

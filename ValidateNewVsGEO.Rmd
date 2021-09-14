@@ -113,7 +113,8 @@ ab <- crossing(sample = params$samples, caseid = seq_along(params$case),
                         maxocc = replace_na(max(occ) ,0)) %>%
               as_tibble())
               ),
-           bedgraph.rows = map_int(.$bedgraph, length)
+           bedgraph.rows = map_int(.$bedgraph, length),
+           max.occupancy = map_dbl(.$bedgraph, function(u) max(u$score))
   ) %>%
   mutate(mean.density = map_dbl(.$bedgraph, function(u) 
     sum(width(u) * u$score) / sum(seqlengths(sacCerRangeNoMito))))
@@ -122,6 +123,9 @@ ab <- crossing(sample = params$samples, caseid = seq_along(params$case),
 ab %>% select(sample, strand, case, bedgraph.rows, mean.density) %>%
   kable(booktabs = TRUE, caption = "Bedgraph file contents") %>% 
   kable_styling()
+
+# TODO report on this x
+x <- ab %>% pivot_wider(id_cols = c(sample, strand), names_from = case, values_from = c(max.occupancy, mean.density))
 
 ```
 Note that the mean densities of the _new_ samples are substantially lower than

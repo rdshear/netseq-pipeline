@@ -1,0 +1,6 @@
+entity:sample_id	inputFastQ
+wt-1	gs://sra-pub-src-15/SRR12840066/wt-1.fastq.gz.1
+wt-2	gs://sra-pub-src-18/SRR12840067/wt-2.fastq.gz.1
+wt-3	gs://sra-pub-src-18/SRR12840068/wt-3.fastq.gz.1
+wt-4	gs://sra-pub-src-16/SRR12840069/wt-4.fastq.gz.1
+xwt-1	gs://fc-353b14e5-19da-46ef-b358-f5b85cffef02/xwt-1.fastq.gz

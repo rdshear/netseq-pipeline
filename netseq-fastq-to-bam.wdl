@@ -103,25 +103,20 @@ task StarAlign {
             --readFilesCommand samtools view \
             --readFilesType SAM SE \
             --outTmpDir "$tempStarDir" \
-            --outSAMtype BAM SortedByCoordinate \
+            --outStd SAM \
             --outFileNamePrefix aligned/~{sampleName}. \
-            --outReadsUnmapped Fastx \
+            --outReadsUnmapped None \
             --outFilterMultimapNmax ~{MultimapNmax} \
-            --limitBAMsortRAM 4000000000 \
             --clip3pAdapterSeq ATCTCGTATGCCGTCTTCTGCTTG \
             --clip3pNbases 0 \
             --clip5pNbases 6  \
-            --alignIntronMax 1
-
-
-        mv  aligned/~{sampleName}.Aligned.sortedByCoord.out.bam  \
-            ~{sampleName}.aligned.bam
+            --alignIntronMax 1 \
+        | samtools sort >  ~{bamResultName}
 >>>
 
     # TODO glob the *.out and/or log files
     output {
         File output_bam = bamResultName
-        # TODO Add the other log files
         Array[File] star_logs = glob('aligned/*.out')
     }
 

@@ -1,12 +1,12 @@
-name: my-new-env
+name: base
 channels:
   - conda-forge
   - bioconda
   - r
 dependencies:
   - python
-  - r-base
-  - r-devtools=2.2
+  - r-base=4.0.5
+  - r-devtools
   - samtools
   - cutadapt
   - gatk4

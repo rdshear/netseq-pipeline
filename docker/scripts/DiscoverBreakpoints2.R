@@ -19,16 +19,14 @@
     # 5 \
     # wt-1 \
     # /n/groups/churchman/rds19/data/S005/ \
-    # /n/groups/churchman/rds19/data/S005/ \
+    # /n/groups/churchman/rds19/data/S005/ 
 
 # To run with embedded parameters, set DEBUG.TEST <- TRUE
 
 suppressPackageStartupMessages({
   library(parallel)
-#  library(yaml)
   library(GenomicRanges)
   library(rtracklayer)
-#  library(SummarizedExperiment)
   library(breakpoint)
   library(TxDb.Scerevisiae.UCSC.sacCer3.sgdGene)
 })
@@ -36,7 +34,7 @@ set.seed(20190416)
 
 # DEBUG ONLY FROM HERE.....
 DEBUG.TEST <- TRUE
-if (exists("DEBUG.TEST")) {
+if (interactive() && exists("DEBUG.TEST")) {
   print("DEBUG IS ON -- COMMAND LINE PARAMETERS IGNORED")
   commandArgs <- function(trailingOnly) {
     c("/n/groups/churchman/rds19/data/S001/refdata/config.json",

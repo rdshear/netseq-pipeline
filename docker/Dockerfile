@@ -7,19 +7,18 @@
 # TODO Add user and working directory
 
 FROM continuumio/miniconda3:latest
-LABEL description="Base docker image with conda and util libraries"
-ARG ENV_NAME="netseq"
+LABEL description="Docker image with components for NET-seq pipeline"
 
 # Install mamba for faster installation in the subsequent step
 # Install r-base for being able to run the install.R script
-RUN conda install -c conda-forge mamba r-base -y
+RUN conda install -c conda-forge mamba -y
 
 # Install the conda environment
 COPY environment.yml /
-RUN mamba env create --quiet --name ${ENV_NAME} --file /environment.yml && conda clean -a
+RUN mamba env update --quiet --file /environment.yml && conda clean -a
 
 # umi_tools is incompatible with other elements in the base image
-RUN mamba create -c bioconda -n umi_tools umi_tools
+RUN mamba create -c bioconda -n umi_tools umi_tools && conda clean -a
 
 # Install R packages that are possibly not available via conda
 COPY bin/install.R /
@@ -32,7 +31,9 @@ ADD ../scripts/ /scripts/
 ENV PATH /opt/conda/envs/${ENV_NAME}/bin:$PATH
 
 # Dump the details of the installed packages to a file for posterity
-RUN mamba env export --name ${ENV_NAME} > ${ENV_NAME}_exported.yml
+RUN mamba env export -n base > base_exported.yml
+RUN mamba env export -n umi_tools > umi_tools_exported.yml
+
 
 # Copy additional scripts from bin and add to PATH
 RUN mkdir /opt/bin

@@ -1,23 +1,17 @@
-# DiscoverBreakpoints.R
+# DiscoverBreakpointsWorker.R
 # bedgraph files --> gff3 files
-# disregarding multi-mapped regions
+# appropriate for scatter/gather model
 # 
 # Usage:
-# Rscript --vanilla scripts/DiscoverBreakpoints2.R \
-#   {reference.gene.list.filename} \
-#   {max.gene.length} {K.max} {max.genes} \
-#   {sample.name} \
-#   {output.file}
+# Rscript --vanilla scripts/DiscoverBreakpointsWorker.R \
+#   {regions.of.ineterest.gff} #regions of interest
+#   {occupancy.bedgraph.pos.gz} 
+#   {occupancy.bedgraph.neg.gz}
+#   {changepoints.gff}    # changepoint output
+#   {max.gene.length}     # regions of interest longer than this will only 
+#                         # be searched to this lengh
+#   {K.max}   # maximum number of changepoints
 #
-# Example:
-# Rscript --vanilla scripts/DiscoverBreakpoints2.R \
-    # /n/groups/churchman/rds19/data/S005/genelist.gff \
-    # 0 \
-    # 12 \
-    # 5 \
-    # wt-1 \
-    # /n/groups/churchman/rds19/data/S005/ \
-    # /n/groups/churchman/rds19/data/S005/ 
 
 # To run with embedded parameters, set DEBUG.TEST <- TRUE
 
@@ -26,63 +20,50 @@ suppressPackageStartupMessages({
   library(GenomicRanges)
   library(rtracklayer)
   library(breakpoint)
-  library(TxDb.Scerevisiae.UCSC.sacCer3.sgdGene)
 })
-set.seed(20190416)
+set.seed(20210915)
 
 # DEBUG ONLY FROM HERE.....
 DEBUG.TEST <- TRUE
 if (interactive() && exists("DEBUG.TEST")) {
   print("DEBUG IS ON -- COMMAND LINE PARAMETERS IGNORED")
   commandArgs <- function(trailingOnly) {
-    c("/n/groups/churchman/rds19/data/S001/refdata/config.json",
-      "/n/groups/churchman/rds19/data/S001/refdata/subject_genes.gff3",
-      "0", # Maximum gene body length
-      "12", # Kmax (maximum number of segments)
-      "2", # Sample size
-      "wt-1",
-      "/n/groups/churchman/rds19/data/S005/",
-      "/n/groups/churchman/rds19/data/S005/")
+    c("~/temp/scatter_list/shard_2.gff",
+      "/n/groups/churchman/rds19/data/S005/wt-1.pos.bedgraph.gz",
+      "/n/groups/churchman/rds19/data/S005/wt-1.neg.bedgraph.gz",
+      "~/temp/scatter_list/shard_2.cp.gff",
+      "800", # Maximum gene body length
+      "12" # Kmax (maximum number of segments)
+      )
   }
 }
 #  .............TO HERE
 
 args <- commandArgs(trailingOnly = TRUE)
 
-config.filename <- args[1]
-subject_genes.filename <- args[2]
-GeneMaxLength <- as.numeric(args[3]) # Truncate gene to this length (or inf if 0)
-Kmax <- as.numeric(args[4])
-maxGenes <- as.numeric(args[5]) # if > 0 sample this number of genes
-sample.name <- args[6]
-input.directory <- args[7]
-output.directory <- args[8]
+subject_genes.filename <- args[1]
+infile.pos <- args[2]
+infile.neg <- args[3]
+output.filename <- args[4]
+GeneMaxLength <- as.numeric(args[5]) # Truncate gene to this length (or inf if 0)
+Kmax <- as.numeric(args[6])
 
-sprintf("Starting at %s. Sample name = %s. Max genes = %d", 
-        Sys.time(), sample.name, maxGenes)
+g <- import(subject_genes.filename)
+
+sprintf("Starting at %s.  Shard name = %s. Genes = %d", 
+        Sys.time(), subject_genes.filename, length(g))
 
 algorithm <- "CEZINB"
+
 
 options(mc.cores = detectCores())
 sprintf("Number of cores detected = %d", getOption("mc.cores"))
 
-infile.pos <- paste0(input.directory, sample.name, ".pos.bedgraph.gz")
-infile.neg <- paste0(input.directory, sample.name, ".neg.bedgraph.gz")
-
-
-sinfo <- seqinfo(TxDb.Scerevisiae.UCSC.sacCer3.sgdGene)
-g <- import(subject_genes.filename)
-seqinfo(g) <- sinfo
 names(g) <- g$ID
 
 # truncate gene lengths if so desired
 if (GeneMaxLength > 0) {
   g <- resize(g, fix = "start", ifelse(width(g) > GeneMaxLength, GeneMaxLength, width(g)))
-}
-
-# subset the genes if so desired
-if (maxGenes > 0 & maxGenes < length(g)) {
-  g <- g[sort(sample(length(g), maxGenes))]
 }
 
 result <- mclapply(as(g, "GRangesList"), function(u) {
@@ -117,13 +98,14 @@ result <- mclapply(as(g, "GRangesList"), function(u) {
     c(m = mean(v), v = var(v))
   })
   
+  # TODO: add gene name and seqmeent number
   result <- GRanges(seqnames = rep(seqnames(u)[1], n),
               strand = rep(strand(u)[1], n),
               ranges = IRanges(start = start(u) - 1 + tr[, 1], 
                 end = start(u) - 1 + tr[, 2]),
               seq_index = seq(n),
               type = "seq_index",
-              source = "DiscoverBreakpoints2",
+              source = "DiscoverBreakpointsWorker",
              algorithm = rep(algorithm, n),
              m = stats["m", ],
              v = stats["v", ])
@@ -152,8 +134,7 @@ result <- unlist(GRangesList(result))
   # c(tx_name = u$tx_name, mu = mu, v = v, 
   #   mzl = head(sort(runLength(s), decreasing = TRUE)))
 
-outfile <- file.path(output.directory, paste0(sample.name, "_", algorithm, ".gff3"))
-export(result, con = outfile, index = TRUE)
+export(result, con = output.filename)
 
 sprintf("Completed at %s\n", Sys.time())
 print(sessionInfo())

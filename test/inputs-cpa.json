@@ -1,0 +1,10 @@
+{
+    "netsq_to_changepoint.sampleName" : "xwt-1",
+    "netsq_to_changepoint.genelist" : "/Users/robertshear/Documents/n/groups/churchman/rds19/data/S005/genelist.gff",
+    "netsq_to_changepoint.CoverageBedgraph_Pos" : "/Users/robertshear/Projects/netseq-pipeline/test/input/xwt-1.pos.bedgraph.gz",
+    "netsq_to_changepoint.CoverageBedgraph_Neg" : "/Users/robertshear/Projects/netseq-pipeline/test/input/xwt-1.neg.bedgraph.gz",
+    "netsq_to_changepoint.ShardCount" : 2,
+    "netsq_to_changepoint.MaxGenes" : 9,
+    "netsq_to_changepoint.GeneTrimLength" : 800,
+    "netsq_to_changepoint.threads": 3
+}

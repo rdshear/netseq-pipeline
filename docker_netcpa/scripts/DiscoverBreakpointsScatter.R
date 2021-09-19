@@ -15,7 +15,6 @@
     # /n/groups/churchman/rds19/data/S005/genelist.gff \
     # 12 \
     # 2 \
-    # /n/groups/churchman/rds19/data/S005/ \
     # /n/groups/churchman/rds19/data/S005/ 
 
 # To run with embedded parameters, set DEBUG.TEST <- TRUE
@@ -60,6 +59,7 @@ if (maxGenes > 0 & maxGenes < length(g)) {
 # create the shards
 gs <- split(g, rep_len(seq(1, n.shards), length(g)))
 
+# TODO Remove unnneded mcols
 dir.create(output.directory, recursive = TRUE)
 for (i in seq_along(gs)) {
   fn <- file.path(output.directory, paste0("shard_",i , ".gff"))

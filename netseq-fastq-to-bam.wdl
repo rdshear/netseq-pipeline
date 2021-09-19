@@ -59,7 +59,10 @@ workflow NETseq {
         File bedgraph_pos = BamToBedgraph.CoverageBedgraph_Pos
         File bedgraph_neg = BamToBedgraph.CoverageBedgraph_Neg
 
-        Array[File] logs = flatten([StarAlign.star_logs, BamToBedgraph.DedupLogs])
+        Array[File] logs = [StarAlign.star_log,
+                                    StarAlign.star_log_std,
+                                    StarAlign.star_log_final,
+                                    BamToBedgraph.DedupLogs]
     }
 }
 
@@ -119,10 +122,9 @@ task StarAlign {
 
     output {
         File output_bam = bamResultName
-        Array[File] star_logs = ["~{sampleName}.Log.final.out", 
-                                "~{sampleName}.Log.out", 
-                                "~{sampleName}.Log.std.out"]
-
+        File star_log_final = "~{sampleName}.Log.final.out"
+        File star_log = "~{sampleName}.Log.out"
+        File star_log_std =  "~{sampleName}.Log.std.out"
     }
 
     runtime {

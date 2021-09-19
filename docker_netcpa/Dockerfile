@@ -28,7 +28,7 @@ COPY bin/install.R /
 RUN mamba run -n base Rscript /install.R
 
 # execution time scripts
-ADD ../scripts/ /scripts/
+ADD scripts/ /scripts/
 
 # Record details of conda installation
 RUN mamba env export -n base > base_exported.yml

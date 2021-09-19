@@ -118,7 +118,7 @@ task StarAlign {
             --clip5pNbases 6  \
             --alignIntronMax 1 \
         | samtools sort >  ~{bamResultName}
->>>
+    >>>
 
     output {
         File output_bam = bamResultName

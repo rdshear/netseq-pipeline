@@ -1,13 +1,13 @@
 version 1.0
 
-## TODO: Add licensing (Broad derivative)
 workflow NETseq {
         meta {
         description: "NET-seq determine RNAP II occupancy. Pre-processes short reads with UMIs in FASTQ format, removes 3' adapter, aligns with reference genome, and produces bam file as well as BEDgraph file of occupancy at each NT position."
         author: "Robert D. Shear"
         email:  "rshear@gmail.com"
     }
-
+    # TODO quality filter
+    # TODO more parameter metadata
     parameter_meta {
         inputFastQ: "Unprocessed reads"
     }
@@ -22,6 +22,7 @@ workflow NETseq {
 
         # Unprocessed reads
         File inputFastQ
+        # TODO...optionally pull off the .1 suffix
         String sampleName = basename(basename(inputFastQ, ".gz"), ".fastq")
 
         # environment
@@ -49,14 +50,16 @@ workflow NETseq {
             preemptible = preemptible
     }
 
+    # TODO clean up intermediate files.
+    # TODO output bam files should be optional
     output {
-
-        Array[File] starLogs = StarAlign.star_logs
         File output_bam = StarAlign.output_bam
 
         File dedup_bam = BamToBedgraph.BamFileDeduped
-        Array[File] bedgraphs = BamToBedgraph.CoverageBedgraphs
-        Array[File] dedup_logs = BamToBedgraph.DedupLogs
+        File bedgraph_pos = BamToBedgraph.CoverageBedgraph_Pos
+        File bedgraph_neg = BamToBedgraph.CoverageBedgraph_Neg
+
+        Array[File] logs = flatten([StarAlign.star_logs, BamToBedgraph.DedupLogs])
     }
 }
 
@@ -104,7 +107,7 @@ task StarAlign {
             --readFilesType SAM SE \
             --outTmpDir "$tempStarDir" \
             --outStd SAM \
-            --outFileNamePrefix aligned/~{sampleName}. \
+            --outFileNamePrefix ~{sampleName}. \
             --outReadsUnmapped None \
             --outFilterMultimapNmax ~{MultimapNmax} \
             --clip3pAdapterSeq ATCTCGTATGCCGTCTTCTGCTTG \
@@ -114,10 +117,12 @@ task StarAlign {
         | samtools sort >  ~{bamResultName}
 >>>
 
-    # TODO glob the *.out and/or log files
     output {
         File output_bam = bamResultName
-        Array[File] star_logs = glob('aligned/*.out')
+        Array[File] star_logs = ["~{sampleName}.Log.final.out", 
+                                "~{sampleName}.Log.out", 
+                                "~{sampleName}.Log.std.out"]
+
     }
 
     runtime {
@@ -160,8 +165,9 @@ task BamToBedgraph {
 
         output {
             File BamFileDeduped = bamDedupName
-            Array[File] CoverageBedgraphs = ['~{sampleName}.pos.bedgraph.gz', '~{sampleName}.neg.bedgraph.gz']
-            Array[File] DedupLogs = glob('*.log')
+            File CoverageBedgraph_Pos = '~{sampleName}.pos.bedgraph.gz'
+            File CoverageBedgraph_Neg = '~{sampleName}.neg.bedgraph.gz'
+            File DedupLogs = '~{sampleName}.dedup.log'
     }
 
     runtime {

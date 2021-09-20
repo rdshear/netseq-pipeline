@@ -1,16 +1,13 @@
 version 1.0
 
 workflow netsq_to_changepoint {
-        meta {
+
+    meta {
         description: "Discover changepoints within genes in NETS-seq occupancy"
         author: "Robert D. Shear"
         email:  "rshear@gmail.com"
     }
 
-    # TODO more parameter metadata
-    parameter_meta {
-        inputFastQ: "Unprocessed reads"
-    }
     input {
 
         String sampleName
@@ -23,10 +20,11 @@ workflow netsq_to_changepoint {
 
         # environment
         Int threads = 8
-        String netcpa_docker = 'rdshear/netcpa'
+        Int preemptible = 1
+        String docker = 'rdshear/netcpa'
     }
 
-    String workdir = "./workdir/"
+    String workdir = './workdir/'
 
     call CreateShards {
         input:
@@ -34,33 +32,89 @@ workflow netsq_to_changepoint {
             ShardCount = ShardCount,
             MaxGenes = MaxGenes,
             workdir = workdir,
-            docker = netcpa_docker
+            docker = docker
+    }
+
+    scatter (genespec in CreateShards.shard_specs) {
+        String Ofile = '~{workdir}cp_' + basename(genespec)
+        call DiscoverBreakpoints {
+            input: 
+                genelist = genespec,
+                CoverageBedgraph_Pos = CoverageBedgraph_Pos,
+                CoverageBedgraph_Neg =CoverageBedgraph_Neg,
+                Output_Filename = Ofile,
+                MaxGenes = MaxGenes,
+                GeneTrimLength = GeneTrimLength,
+
+                docker = docker,
+                threads = threads,
+                preemptible = preemptible
+        }
     }
 }
-    task CreateShards {
-        input {
-        File genelist
-        Int ShardCount
-        Int MaxGenes
-        String workdir
 
-        String docker
-        }
+task CreateShards {
+    input {
+    File genelist
+    Int ShardCount
+    Int MaxGenes
+    String workdir
 
-        command <<<
-            set -e
+    String docker
+    }
 
-            Rscript --vanilla /scripts/DiscoverBreakpointsScatter.R \
-             ~{genelist} \
-             ~{MaxGenes} \
-             ~{ShardCount} \
-             ~{workdir}
-        >>>
+    command <<<
+        set -e
+
+        Rscript --vanilla /scripts/DiscoverBreakpointsScatter.R \
+            ~{genelist} \
+            ~{MaxGenes} \
+            ~{ShardCount} \
+            ~{workdir}
+    >>>
+
     runtime {
         docker: docker
-        }
-
-    
-
-    #${sep=", " array_value}
     }
+
+    output {
+        Array[File] shard_specs = glob("~{workdir}/shard_*.gff")
+    }
+}
+
+task DiscoverBreakpoints {
+    input {
+        File genelist
+        File CoverageBedgraph_Pos
+        File CoverageBedgraph_Neg
+        String Output_Filename
+        Int MaxGenes
+        Int GeneTrimLength
+
+        String docker
+        Int threads
+        Int preemptible
+    }
+
+    command <<<
+        set -e
+
+        Rscript --vanilla /scripts/DiscoverBreakpointsWorker.R \
+            ~{genelist} \
+            ~{CoverageBedgraph_Pos} \
+            ~{CoverageBedgraph_Neg} \
+            ~{Output_Filename} \
+            ~{MaxGenes} \
+            ~{GeneTrimLength}
+    >>>
+
+    output {
+        File result_file = Output_Filename
+    }
+
+    runtime {
+        docker: docker
+        preemptible: preemptible
+        cpu: threads
+    }
+}

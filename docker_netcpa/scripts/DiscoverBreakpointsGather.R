@@ -9,12 +9,8 @@
 # To run with embedded parameters, set DEBUG.TEST <- TRUE
 
 suppressPackageStartupMessages({
-  library(parallel)
-  library(GenomicRanges)
   library(rtracklayer)
-  library(breakpoint)
 })
-set.seed(20210916)
 
 # DEBUG ONLY FROM HERE.....
 DEBUG.TEST <- TRUE
@@ -34,11 +30,8 @@ args <- commandArgs(trailingOnly = TRUE)
 output.filename <- args[1]
 shards <- args[-1]
 
-result <- unlist(GRangesList(lapply(shards, function(u) import(u))))
-
-# TODO: add seqinfo and sort
-
-
+result <- unlist(GRangesList(lapply(shards, function(u) import(u, genome = "sacCer3"))))
+result <- sort(result)
 export(result, con = output.filename)
 
 sprintf("Completed at %s\n", Sys.time())

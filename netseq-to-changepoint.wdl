@@ -24,19 +24,16 @@ workflow netsq_to_changepoint {
         String docker = 'rdshear/netcpa'
     }
 
-    String workdir = './workdir/'
-
     call CreateShards {
         input:
             genelist = genelist,
             ShardCount = ShardCount,
             MaxGenes = MaxGenes,
-            workdir = workdir,
             docker = docker
     }
 
     scatter (genespec in CreateShards.shard_specs) {
-        String Ofile = '~{workdir}cp_' + basename(genespec)
+        String Ofile = 'cp_' + basename(genespec)
         call DiscoverBreakpoints {
             input: 
                 genelist = genespec,
@@ -58,7 +55,6 @@ task CreateShards {
     File genelist
     Int ShardCount
     Int MaxGenes
-    String workdir
 
     String docker
     }
@@ -69,8 +65,7 @@ task CreateShards {
         Rscript --vanilla /scripts/DiscoverBreakpointsScatter.R \
             ~{genelist} \
             ~{MaxGenes} \
-            ~{ShardCount} \
-            ~{workdir}
+            ~{ShardCount}
     >>>
 
     runtime {
@@ -78,7 +73,7 @@ task CreateShards {
     }
 
     output {
-        Array[File] shard_specs = glob("~{workdir}/shard_*.gff")
+        Array[File] shard_specs = glob("shard_*.gff")
     }
 }
 

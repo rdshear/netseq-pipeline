@@ -28,11 +28,11 @@ DEBUG.TEST <- TRUE
 if (interactive() && exists("DEBUG.TEST")) {
   print("DEBUG IS ON -- COMMAND LINE PARAMETERS IGNORED")
   commandArgs <- function(trailingOnly) {
-    c("~/temp/scatter_list/shard_2.gff",
+    c("~/temp/shard_1.gff",
       "/n/groups/churchman/rds19/data/S005/wt-1.pos.bedgraph.gz",
       "/n/groups/churchman/rds19/data/S005/wt-1.neg.bedgraph.gz",
-      "~/temp/scatter_list/shard_2.cp.gff",
-      "800", # Maximum gene body length
+      "~/temp/cp_shard_1.gff",
+      "300", # Maximum gene body length
       "12" # Kmax (maximum number of segments)
       )
   }
@@ -66,6 +66,8 @@ if (GeneMaxLength > 0) {
   g <- resize(g, fix = "start", ifelse(width(g) > GeneMaxLength, GeneMaxLength, width(g)))
 }
 
+start.time <- Sys.time()
+
 result <- mclapply(as(g, "GRangesList"), function(u) {
   is.plus <- as.logical(as.character(strand(u)) == "+")
   s <- import(ifelse(is.plus, infile.pos, infile.neg), which = u, genome = "sacCer3")
@@ -98,17 +100,16 @@ result <- mclapply(as(g, "GRangesList"), function(u) {
     c(m = mean(v), v = var(v))
   })
   
-  # TODO: add gene name and seqmeent number
   result <- GRanges(seqnames = rep(seqnames(u)[1], n),
               strand = rep(strand(u)[1], n),
               ranges = IRanges(start = start(u) - 1 + tr[, 1], 
                 end = start(u) - 1 + tr[, 2]),
               seq_index = seq(n),
               type = "seq_index",
-              source = "DiscoverBreakpointsWorker",
+              source = "DiscoverBP",
              algorithm = rep(algorithm, n),
-             m = stats["m", ],
-             v = stats["v", ])
+             m = round(stats["m", ],4),
+             v = round(stats["v", ],4))
   result
 })
 
@@ -120,12 +121,14 @@ for (i in seq_along(result)) {
 
 result <- unlist(GRangesList(result))
 
-
+end.time <- Sys.time()
+elapsed.time <- difftime(end.time, start.time, units = "secs")
+time.per.gene <- elapsed.time / length(g)
+time.per.nt <- elapsed.time / sum(width(g))
 
 #  mcols(result)$tx_name <- as.character(u$tx_name)
   #result$type <- Rle(values = "seq_index", lengths = n)
   
-  result
   # # TODO: Carry BIC and logLikelihood
   # # # TODO: get segment statistics
   # # # TODO: reverse negative strand 
@@ -134,7 +137,9 @@ result <- unlist(GRangesList(result))
   # c(tx_name = u$tx_name, mu = mu, v = v, 
   #   mzl = head(sort(runLength(s), decreasing = TRUE)))
 
-export(result, con = output.filename)
+export.gff3(result, con = output.filename)
 
-sprintf("Completed at %s\n", Sys.time())
+cat(sprintf("Elapsed time: %.0f sec,  genes: %.0f ,   bases: %.0f \n  %0.2f sec/gene,   %0.1f msec/base \n Completed at %s\n",
+        elapsed.time, length(g), sum(width(g)), time.per.gene, time.per.nt * 1000, Sys.time()))
+
 print(sessionInfo())

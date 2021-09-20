@@ -7,15 +7,13 @@
 # Rscript --vanilla scripts/DiscoverBreakpointsScatter.R \
 #   {reference.gene.list.filename} \
 #   {n.genes} \
-#   {n.shards} \ 
-#   {output.file.directory}
+#   {n.shards} 
 #
 # Example:
 # Rscript --vanilla scripts/DiscoverBreakpointsScatter.R \
     # /n/groups/churchman/rds19/data/S005/genelist.gff \
     # 12 \
-    # 2 \
-    # /n/groups/churchman/rds19/data/S005/ 
+    # 2
 
 # To run with embedded parameters, set DEBUG.TEST <- TRUE
 
@@ -32,8 +30,7 @@ if (interactive() && exists("DEBUG.TEST")) {
   commandArgs <- function(trailingOnly) {
     c("/n/groups/churchman/rds19/data/S005/genelist.gff",
       "5", # n.genes
-      "2", # n.shards
-      "~/temp/scatter_list/")
+      "2") # n.shards
   }
 }
 #  .............TO HERE
@@ -43,26 +40,27 @@ args <- commandArgs(trailingOnly = TRUE)
 subject_genes.filename <- args[1]
 maxGenes <- as.numeric(args[2]) # if > 0 sample this number of genes
 n.shards <- as.numeric(args[3]) # shards
-output.directory <- args[4]
 
 
 sprintf("Starting at %s.  shards = %s. Max genes = %d", 
         Sys.time(), n.shards, maxGenes)
 
-g <- import(subject_genes.filename)
+g <- import.gff3(subject_genes.filename, genome = "sacCer3", 
+                  feature.type = "gene", colnames = "ID")
 
 # subset the genes if so desired
 if (maxGenes > 0 & maxGenes < length(g)) {
   g <- g[sort(sample(length(g), maxGenes))]
 }
 
+names(g) = g$ID
+
 # create the shards
 gs <- split(g, rep_len(seq(1, n.shards), length(g)))
 
 # TODO Remove unnneded mcols
-dir.create(output.directory, recursive = TRUE)
 for (i in seq_along(gs)) {
-  fn <- file.path(output.directory, paste0("shard_",i , ".gff"))
+  fn <- file.path(paste0("shard_",i , ".gff"))
   export.gff3(gs[[i]], fn)
 }
 

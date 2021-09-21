@@ -18,6 +18,7 @@ workflow netsq_to_changepoint {
         Int ShardCount
         Int MaxGenes
         Int GeneTrimLength
+        Int MaxK 
 
         # environment
         Int threads = 8
@@ -28,6 +29,8 @@ workflow netsq_to_changepoint {
     call CreateShards {
         input:
             genelist = genelist,
+            CoverageBedgraph_Pos = CoverageBedgraph_Pos,
+            CoverageBedgraph_Neg = CoverageBedgraph_Neg,
             ShardCount = ShardCount,
             MaxGenes = MaxGenes,
             docker = docker_netcpa
@@ -37,12 +40,10 @@ workflow netsq_to_changepoint {
         String Ofile = 'cp_' + basename(genespec)
         call DiscoverBreakpoints {
             input: 
-                genelist = genespec,
-                CoverageBedgraph_Pos = CoverageBedgraph_Pos,
-                CoverageBedgraph_Neg =CoverageBedgraph_Neg,
+                workfile = genespec,
                 Output_Filename = Ofile,
-                MaxGenes = MaxGenes,
                 GeneTrimLength = GeneTrimLength,
+                MaxK = MaxGenes,
 
                 docker = docker_netcpa,
                 threads = threads,
@@ -67,6 +68,8 @@ workflow netsq_to_changepoint {
 task CreateShards {
     input {
     File genelist
+    File CoverageBedgraph_Pos
+    File CoverageBedgraph_Neg
     Int ShardCount
     Int MaxGenes
 
@@ -78,6 +81,8 @@ task CreateShards {
 
         Rscript --vanilla /scripts/DiscoverBreakpointsScatter.R \
             ~{genelist} \
+            ~{CoverageBedgraph_Pos} \
+            ~{CoverageBedgraph_Neg} \
             ~{MaxGenes} \
             ~{ShardCount}
     >>>
@@ -87,18 +92,16 @@ task CreateShards {
     }
 
     output {
-        Array[File] shard_specs = glob("shard_*.gff")
+        Array[File] shard_specs = glob("shard_*.rds")
     }
 }
 
 task DiscoverBreakpoints {
     input {
-        File genelist
-        File CoverageBedgraph_Pos
-        File CoverageBedgraph_Neg
+        File workfile
         String Output_Filename
-        Int MaxGenes
         Int GeneTrimLength
+        Int MaxK
 
         String docker
         Int threads
@@ -109,12 +112,10 @@ task DiscoverBreakpoints {
         set -e
 
         Rscript --vanilla /scripts/DiscoverBreakpointsWorker.R \
-            ~{genelist} \
-            ~{CoverageBedgraph_Pos} \
-            ~{CoverageBedgraph_Neg} \
+            ~{workfile} \
             ~{Output_Filename} \
-            ~{MaxGenes} \
-            ~{GeneTrimLength}
+            ~{GeneTrimLength} \
+            ~{MaxK}
     >>>
 
     output {

@@ -28,9 +28,7 @@ DEBUG.TEST <- TRUE
 if (interactive() && exists("DEBUG.TEST")) {
   print("DEBUG IS ON -- COMMAND LINE PARAMETERS IGNORED")
   commandArgs <- function(trailingOnly) {
-    c("~/temp/shard_1.gff",
-      "/n/groups/churchman/rds19/data/S005/wt-1.pos.bedgraph.gz",
-      "/n/groups/churchman/rds19/data/S005/wt-1.neg.bedgraph.gz",
+    c("~/temp/shard_1.rds",
       "~/temp/cp_shard_1.gff",
       "300", # Maximum gene body length
       "12" # Kmax (maximum number of segments)
@@ -41,17 +39,15 @@ if (interactive() && exists("DEBUG.TEST")) {
 
 args <- commandArgs(trailingOnly = TRUE)
 
-subject_genes.filename <- args[1]
-infile.pos <- args[2]
-infile.neg <- args[3]
-output.filename <- args[4]
-GeneMaxLength <- as.numeric(args[5]) # Truncate gene to this length (or inf if 0)
-Kmax <- as.numeric(args[6])
+input.filename <- args[1]
+output.filename <- args[2]
+GeneMaxLength <- as.numeric(args[3]) # Truncate gene to this length (or inf if 0)
+Kmax <- as.numeric(args[4])
 
-g <- import(subject_genes.filename)
+source_data <- readRDS(args[1])
 
 sprintf("Starting at %s.  Shard name = %s. Genes = %d", 
-        Sys.time(), subject_genes.filename, length(g))
+        Sys.time(), input.filename, length(source_data))
 
 algorithm <- "CEZINB"
 
@@ -59,24 +55,23 @@ algorithm <- "CEZINB"
 options(mc.cores = detectCores())
 sprintf("Number of cores detected = %d", getOption("mc.cores"))
 
-names(g) <- g$ID
-
-# truncate gene lengths if so desired
-if (GeneMaxLength > 0) {
-  g <- resize(g, fix = "start", ifelse(width(g) > GeneMaxLength, GeneMaxLength, width(g)))
-}
 
 start.time <- Sys.time()
 
-result <- mclapply(as(g, "GRangesList"), function(u) {
-  is.plus <- as.logical(as.character(strand(u)) == "+")
-  s <- import(ifelse(is.plus, infile.pos, infile.neg), which = u, genome = "sacCer3")
+result <- mclapply(source_data, function(u) {
+  gene <- u$gene
+  # truncate gene lengths if so desired
+  if (GeneMaxLength > 0) {
+    gene <- resize(gene, fix = "start", ifelse(width(gene) > GeneMaxLength, GeneMaxLength, width(gene)))
+  }
+  
+  s <- u$scores
   # if there is no overlap between the feature (u) and the bedGraph entries,
   # then mcolAsRleList will fail. Workaround follows
   if (length(s) == 0) {
     s <- Rle(values = 0, lengths = width(u))
   } else {
-    s <- mcolAsRleList(s, "score")[[seqnames(u)]][start(u):end(u)]
+    s <- mcolAsRleList(s, "score")[[seqnames(gene)]][start(gene):end(gene)]
   }
   s <- replace(s, is.na(s), 0)
 
@@ -100,10 +95,11 @@ result <- mclapply(as(g, "GRangesList"), function(u) {
     c(m = mean(v), v = var(v))
   })
   
-  result <- GRanges(seqnames = rep(seqnames(u)[1], n),
-              strand = rep(strand(u)[1], n),
-              ranges = IRanges(start = start(u) - 1 + tr[, 1], 
-                end = start(u) - 1 + tr[, 2]),
+  result <- GRanges(seqnames = rep(seqnames(gene)[1], n),
+              strand = rep(strand(gene)[1], n),
+              ranges = IRanges(start = start(gene) - 1 + tr[, 1], 
+                end = start(gene) - 1 + tr[, 2]),
+              tx_name = gene$ID,
               seq_index = seq(n),
               type = "seq_index",
               source = "DiscoverBP",
@@ -113,21 +109,15 @@ result <- mclapply(as(g, "GRangesList"), function(u) {
   result
 })
 
-# HACK. Can't set the name in the GRanges constructor
-
-for (i in seq_along(result)) {
-  result[[i]]$tx_name = names(result)[i]
-}
 
 result <- unlist(GRangesList(result))
 
 end.time <- Sys.time()
 elapsed.time <- difftime(end.time, start.time, units = "secs")
-time.per.gene <- elapsed.time / length(g)
-time.per.nt <- elapsed.time / sum(width(g))
+time.per.gene <- elapsed.time / length(source_data)
+total_width <- sum(sapply(source_data, function(u) min(width(u$gene), GeneMaxLength)))
+time.per.nt <- elapsed.time / total_width
 
-#  mcols(result)$tx_name <- as.character(u$tx_name)
-  #result$type <- Rle(values = "seq_index", lengths = n)
   
   # # TODO: Carry BIC and logLikelihood
   # # # TODO: get segment statistics
@@ -139,7 +129,7 @@ time.per.nt <- elapsed.time / sum(width(g))
 
 export.gff3(result, con = output.filename)
 
-cat(sprintf("Elapsed time: %.0f sec,  genes: %.0f ,   bases: %.0f \n  %0.2f sec/gene,   %0.1f msec/base \n Completed at %s\n",
-        elapsed.time, length(g), sum(width(g)), time.per.gene, time.per.nt * 1000, Sys.time()))
+cat(sprintf("Elapsed time: %.0f sec,  genes: %.0f,   bases: %.0f \n  %0.2f sec/gene,   %0.1f msec/base \n Completed at %s\n",
+        elapsed.time, length(source_data), total_width, time.per.gene, time.per.nt * 1000, Sys.time()))
 
 print(sessionInfo())

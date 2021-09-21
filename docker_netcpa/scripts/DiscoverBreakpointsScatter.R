@@ -6,6 +6,8 @@
 # Usage:
 # Rscript --vanilla scripts/DiscoverBreakpointsScatter.R \
 #   {reference.gene.list.filename} \
+#   {occupancy.bedgraph.pos.gz} 
+#   {occupancy.bedgraph.neg.gz}
 #   {n.genes} \
 #   {n.shards} 
 #
@@ -18,7 +20,6 @@
 # To run with embedded parameters, set DEBUG.TEST <- TRUE
 
 suppressPackageStartupMessages({
-  library(GenomicRanges)
   library(rtracklayer)
 })
 set.seed(20190416)
@@ -29,6 +30,9 @@ if (interactive() && exists("DEBUG.TEST")) {
   print("DEBUG IS ON -- COMMAND LINE PARAMETERS IGNORED")
   commandArgs <- function(trailingOnly) {
     c("/n/groups/churchman/rds19/data/S005/genelist.gff",
+      "/n/groups/churchman/rds19/data/S005/wt-1.pos.bedgraph.gz",
+      "/n/groups/churchman/rds19/data/S005/wt-1.neg.bedgraph.gz",
+      "~/Downloads/",
       "5", # n.genes
       "2") # n.shards
   }
@@ -38,8 +42,10 @@ if (interactive() && exists("DEBUG.TEST")) {
 args <- commandArgs(trailingOnly = TRUE)
 
 subject_genes.filename <- args[1]
-maxGenes <- as.numeric(args[2]) # if > 0 sample this number of genes
-n.shards <- as.numeric(args[3]) # shards
+bedgraph.filename.pos <- args[2]
+bedgraph.filename.neg <- args[3]
+maxGenes <- as.numeric(args[4]) # if > 0 sample this number of genes
+n.shards <- as.numeric(args[5]) # shards
 
 
 sprintf("Starting at %s.  shards = %s. Max genes = %d", 
@@ -48,20 +54,36 @@ sprintf("Starting at %s.  shards = %s. Max genes = %d",
 g <- import.gff3(subject_genes.filename, genome = "sacCer3", 
                   feature.type = "gene", colnames = "ID")
 
+x <- mapply(function (filename, strand) {
+                  result <- import(filename, genome = "sacCer3")
+                  strand(result) <- strand
+                  result
+                },
+              c(bedgraph.filename.pos, bedgraph.filename.neg), c('+', '-'))
+
+scores <- c(x[[1]], x[[2]])
+
 # subset the genes if so desired
 if (maxGenes > 0 & maxGenes < length(g)) {
   g <- g[sort(sample(length(g), maxGenes))]
 }
 
-names(g) = g$ID
+v <- findOverlaps(g, scores)
+v <- split(subjectHits(v), queryHits(v))
+gindex <- as.integer(names(v))
+names(gindex) <- names(g[gindex])
+w <- mapply(function(gene, idx) {
+          list(gene = g[gene], scores = scores[idx])
+        },
+    gindex, v, SIMPLIFY = FALSE)
+
 
 # create the shards
-gs <- split(g, rep_len(seq(1, n.shards), length(g)))
+gs <- split(w, rep_len(seq(1, n.shards), length(w)))
 
-# TODO Remove unnneded mcols
 for (i in seq_along(gs)) {
-  fn <- file.path(paste0("shard_",i , ".gff"))
-  export.gff3(gs[[i]], fn)
+  fn <- file.path(paste0("shard_",i , ".rds"))
+  saveRDS(gs[[i]], fn)
 }
 
 print(sessionInfo())

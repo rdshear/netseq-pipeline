@@ -7,7 +7,7 @@
     "netsq_to_changepoint.ShardCount" : 2,
     "netsq_to_changepoint.MaxGenes" : 6,
     "netsq_to_changepoint.MaxK" : 10,
-    "netsq_to_changepoint.GeneTrimLength" : 800,
-    "netsq_to_changepoint.threads" : 1
+    "netsq_to_changepoint.GeneTrimLength" : 300,
+    "netsq_to_changepoint.threads" : 3
     
 }

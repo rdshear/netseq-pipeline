@@ -20,9 +20,12 @@ RUN conda config --set channel_priority strict
 # load the packages we need
 RUN mamba install -c conda-forge r-base=4.1.1 r-devtools r-biocmanager -y
 RUN mamba install r-tidyverse -y
-RUN mamba install bioconductor-GenomicRanges bioconductor-rtracklayer -y
+RUN mamba install bioconductor-GenomicRanges bioconductor-rtracklayer \
+      bioconductor-plyranges -y
 
-
+# HACK ... need systemfonts for kabelExtra
+#       but kabblExtra source install fails (sep-2021)
+RUN mamba install r-systemfonts -y
 # Install R packages that are possibly not available via conda
 COPY bin/install.R /
 RUN mamba run -n base Rscript /install.R

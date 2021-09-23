@@ -8,12 +8,15 @@
 #   {reference.gene.list.filename} \
 #   {occupancy.bedgraph.pos.gz} 
 #   {occupancy.bedgraph.neg.gz}
+#   {max.gene.length}     # regions of interest longer than this will only 
+#                         # be searched to this lengh
 #   {n.genes} \
 #   {n.shards} 
 #
 # Example:
 # Rscript --vanilla scripts/DiscoverBreakpointsScatter.R \
     # /n/groups/churchman/rds19/data/S005/genelist.gff \
+    # 800
     # 12 \
     # 2
 
@@ -21,6 +24,9 @@
 
 suppressPackageStartupMessages({
   library(rtracklayer)
+  library(tidyverse)
+  library(plyranges)
+  library(glue)
 })
 set.seed(20190416)
 
@@ -28,11 +34,12 @@ set.seed(20190416)
 DEBUG.TEST <- TRUE
 if (interactive() && exists("DEBUG.TEST")) {
   print("DEBUG IS ON -- COMMAND LINE PARAMETERS IGNORED")
+  setwd("~/temp/")
   commandArgs <- function(trailingOnly) {
     c("/n/groups/churchman/rds19/data/S005/genelist.gff",
       "/n/groups/churchman/rds19/data/S005/wt-1.pos.bedgraph.gz",
       "/n/groups/churchman/rds19/data/S005/wt-1.neg.bedgraph.gz",
-      "~/Downloads/",
+      "400", # Maximum gene body length
       "5", # n.genes
       "2") # n.shards
   }
@@ -44,8 +51,9 @@ args <- commandArgs(trailingOnly = TRUE)
 subject_genes.filename <- args[1]
 bedgraph.filename.pos <- args[2]
 bedgraph.filename.neg <- args[3]
-maxGenes <- as.numeric(args[4]) # if > 0 sample this number of genes
-n.shards <- as.numeric(args[5]) # shards
+GeneMaxLength <- as.numeric(args[4]) # Truncate gene to this length (or inf if 0)
+maxGenes <- as.numeric(args[5]) # if > 0 sample this number of genes
+n.shards <- as.numeric(args[6]) # shards
 
 
 sprintf("Starting at %s.  shards = %s. Max genes = %d", 
@@ -54,36 +62,31 @@ sprintf("Starting at %s.  shards = %s. Max genes = %d",
 g <- import.gff3(subject_genes.filename, genome = "sacCer3", 
                   feature.type = "gene", colnames = "ID")
 
-x <- mapply(function (filename, strand) {
-                  result <- import(filename, genome = "sacCer3")
-                  strand(result) <- strand
-                  result
-                },
-              c(bedgraph.filename.pos, bedgraph.filename.neg), c('+', '-'))
-
-scores <- c(x[[1]], x[[2]])
-
-# subset the genes if so desired
 if (maxGenes > 0 & maxGenes < length(g)) {
   g <- g[sort(sample(length(g), maxGenes))]
 }
 
-v <- findOverlaps(g, scores)
-v <- split(subjectHits(v), queryHits(v))
-gindex <- as.integer(names(v))
-names(gindex) <- names(g[gindex])
-w <- mapply(function(gene, idx) {
-          list(gene = g[gene], scores = scores[idx])
-        },
-    gindex, v, SIMPLIFY = FALSE)
-
-
-# create the shards
-gs <- split(w, rep_len(seq(1, n.shards), length(w)))
-
-for (i in seq_along(gs)) {
-  fn <- file.path(paste0("shard_",i , ".rds"))
-  saveRDS(gs[[i]], fn)
+if (GeneMaxLength > 0) {
+  g <- resize(g, fix = "start", 
+              ifelse(width(g) > GeneMaxLength, 
+                     GeneMaxLength, width(g)))
 }
+
+map2(c(bedgraph.filename.pos, bedgraph.filename.neg), c('+', '-'), 
+     function(filename, strand) {
+       result <- import(filename, genome = "sacCer3")
+       strand(result) <- strand
+       result
+     }) %>% 
+  GRangesList() %>% # Can't unlist a list of GRanges (as of 9/2021)
+  unlist() %>%
+  join_overlap_inner_directed(g) %>%
+  as_tibble() %>%
+  nest_by(ID) %>%
+  inner_join(g, copy = TRUE) %>%
+  ungroup() %>%
+  mutate(width = NULL, shard = row_number() %% n.shards) %>%
+  group_by(shard) %>%
+  group_map(function(u, v)  saveRDS(u, glue("shard_{v}.rds")))
 
 print(sessionInfo())

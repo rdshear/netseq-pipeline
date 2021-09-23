@@ -1,0 +1,1 @@
+{"NETseq.bedgraph_neg":"${this.bedgraph_neg}","NETseq.bedgraph_pos":"${this.bedgraph_pos}","NETseq.dedup_bam":"${this.dedup_bam}","NETseq.logs":"${this.logs}","NETseq.output_bam":"${this.output_bam}"}

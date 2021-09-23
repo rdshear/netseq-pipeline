@@ -28,11 +28,11 @@ set.seed(20190416)
 DEBUG.TEST <- TRUE
 if (interactive() && exists("DEBUG.TEST")) {
   print("DEBUG IS ON -- COMMAND LINE PARAMETERS IGNORED")
+  setwd("~/temp/")
   commandArgs <- function(trailingOnly) {
     c("/n/groups/churchman/rds19/data/S005/genelist.gff",
       "/n/groups/churchman/rds19/data/S005/wt-1.pos.bedgraph.gz",
       "/n/groups/churchman/rds19/data/S005/wt-1.neg.bedgraph.gz",
-      "~/Downloads/",
       "5", # n.genes
       "2") # n.shards
   }

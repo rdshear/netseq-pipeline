@@ -26,11 +26,12 @@ set.seed(20210915)
 # DEBUG ONLY FROM HERE.....
 DEBUG.TEST <- TRUE
 if (interactive() && exists("DEBUG.TEST")) {
+  setwd("~/temp")
   print("DEBUG IS ON -- COMMAND LINE PARAMETERS IGNORED")
   commandArgs <- function(trailingOnly) {
     c("~/temp/shard_1.rds",
       "~/temp/cp_shard_1.gff",
-      "300", # Maximum gene body length
+      "50", # Maximum gene body length
       "12" # Kmax (maximum number of segments)
       )
   }
@@ -46,14 +47,14 @@ Kmax <- as.numeric(args[4])
 
 source_data <- readRDS(args[1])
 
-sprintf("Starting at %s.  Shard name = %s. Genes = %d", 
-        Sys.time(), input.filename, length(source_data))
+print(sprintf("Starting at %s.  Shard name = %s. Genes = %d", 
+        Sys.time(), input.filename, length(source_data)))
 
 algorithm <- "CEZINB"
 
 
 options(mc.cores = detectCores())
-sprintf("Number of cores detected = %d", getOption("mc.cores"))
+print(sprintf("Number of cores detected = %d", getOption("mc.cores")))
 
 
 start.time <- Sys.time()
@@ -106,9 +107,17 @@ result <- mclapply(source_data, function(u) {
              algorithm = rep(algorithm, n),
              m = round(stats["m", ],4),
              v = round(stats["v", ],4))
-  result
-})
-
+  
+  
+  
+    writeLines(sprintf("TRACE %s  Gene %s\n", Sys.time(), gene$ID), stderr())
+    writeLines(kableExtra::kable(gc(), format = "pipe"), stderr())
+    close(fileConn)
+  
+    result
+  },
+  # mclapply paramters
+  mc.preschedule = FALSE, mc.silent = FALSE, mc.cores = 1)
 
 result <- unlist(GRangesList(result))
 

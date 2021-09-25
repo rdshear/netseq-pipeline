@@ -13,12 +13,13 @@
 
 suppressPackageStartupMessages({
   library(GenomicRanges)
-  library(parallel)
   library(rtracklayer)
   library(breakpoint)
   library(tidyverse)
   library(plyranges)
-  library(multidplyr)
+  library(parallel)
+  library(foreach)
+  library(doMC)
 })
 set.seed(20210915)
 
@@ -47,16 +48,33 @@ print(sprintf("Starting at %s.  Shard name = %s.",
 
 algorithm <- "CEZINB"
 
+get_change_points <- function(s) {
+  u <- data.frame(score = s)
+  # NOTE: This is *always* + direction. We assume no bias in this agorithm by strand
+  seg <- try(CE.ZINB(data = u, Nmax = Kmax, parallel = FALSE), silent = FALSE)
+  if (inherits(seg, c("character", "try-error"))) {
+    tau <- numeric(0)
+  } else {
+    tau <- seg$BP.Loc
+  }
+  result <- tibble(seq_index = seq(length(tau) + 1),
+         s.start = c(1, tau), s.end = c(tau - 1, nrow(u))) %>%
+    mutate(m = map2_dbl(s.start, s.end,
+                        function(a, b, c) mean(c[a:b]), u$score),
+                      #TODO {var} or {v}
+                      #TODO Round m and v
+                      var = map2_dbl(s.start, s.end,
+                          function(a, b, c) var(c[a:b]), u$score))
+  result
+}
 
-mc.cores = max(detectCores(), 2) - 1
-
-
+mc.cores <- max(detectCores(), 2) - 1
+registerDoMC(cores = mc.cores)
 start.time <- Sys.time()
 print(sprintf("Starting at %s, Number of cores to use = %d",
-              as.character(start.time), mc.cores))
+             as.character(start.time), mc.cores))
 
-
-readRDS(input.filename) %>%
+readRDS(input.filename) %>% 
   mutate(scores = pmap(list(start, end, data), function(s, e, d) {
       locs <- map2(d$start - s + 1, d$end - d$start + 1, function(u, v) u + seq(0, v-1))
       x <- rep(0, e - s + 1)
@@ -67,23 +85,7 @@ readRDS(input.filename) %>%
       x
       })) %>%
   mutate(mu = map_dbl(scores, mean), v = map_dbl(scores, var)) %>%
-  mutate(segments = map(scores, function(s) {
-            u <- data.frame(score = s)
-            # NOTE: This is *always* + direction. We assume no bias in this agorithm by strand
-            seg <- try(CE.ZINB(data = u, Nmax = Kmax, parallel = FALSE), silent = FALSE)
-            if (inherits(seg, c("character", "try-error"))) {
-              tau <- numeric(0)
-            } else {
-              tau <- seg$BP.Loc
-            }
-            tibble(seq_index = seq(length(tau) + 1), 
-                   s.start = c(1, tau), s.end = c(tau - 1, nrow(u))) %>%
-            mutate(m = map2_dbl(s.start, s.end, 
-                                function(a, b, c) mean(c[a:b]), u$score), 
-                   var = map2_dbl(s.start, s.end, 
-                                function(a, b, c) var(c[a:b]), u$score))
-          })
-  ) %>%
+  mutate(segments = foreach(s = .$scores) %dopar% get_change_points(s)) %>%
   unnest(segments) -> result 
 
 
@@ -94,10 +96,8 @@ gr.out <- GRanges(seqnames = result$seqnames,
                   seq_index = result$seq_index,
                   type = "seq_index",
                   algorithm = algorithm,
-                  m = result$m,
-                  v = result$v)
-  
-    gr.out
+                  m = round(result$m,4),
+                  v = round(result$var,4))
 
 end.time <- Sys.time()
 elapsed.time <- difftime(end.time, start.time, units = "secs")

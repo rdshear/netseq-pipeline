@@ -31,6 +31,7 @@ workflow netsq_to_changepoint {
             genelist = genelist,
             CoverageBedgraph_Pos = CoverageBedgraph_Pos,
             CoverageBedgraph_Neg = CoverageBedgraph_Neg,
+            GeneTrimLength = GeneTrimLength,
             ShardCount = ShardCount,
             MaxGenes = MaxGenes,
             docker = docker_netcpa
@@ -42,7 +43,6 @@ workflow netsq_to_changepoint {
             input: 
                 workfile = genespec,
                 Output_Filename = Ofile,
-                GeneTrimLength = GeneTrimLength,
                 MaxK = MaxGenes,
 
                 docker = docker_netcpa,
@@ -70,6 +70,7 @@ task CreateShards {
     File genelist
     File CoverageBedgraph_Pos
     File CoverageBedgraph_Neg
+    Int GeneTrimLength
     Int ShardCount
     Int MaxGenes
 
@@ -83,6 +84,7 @@ task CreateShards {
             ~{genelist} \
             ~{CoverageBedgraph_Pos} \
             ~{CoverageBedgraph_Neg} \
+            ~{GeneTrimLength} \
             ~{MaxGenes} \
             ~{ShardCount}
     >>>
@@ -100,7 +102,6 @@ task DiscoverBreakpoints {
     input {
         File workfile
         String Output_Filename
-        Int GeneTrimLength
         Int MaxK
 
         String docker
@@ -114,7 +115,6 @@ task DiscoverBreakpoints {
         Rscript --vanilla /scripts/DiscoverBreakpointsWorker.R \
             ~{workfile} \
             ~{Output_Filename} \
-            ~{GeneTrimLength} \
             ~{MaxK}
     >>>
 

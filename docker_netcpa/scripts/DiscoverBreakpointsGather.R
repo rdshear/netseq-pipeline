@@ -18,8 +18,7 @@ if (interactive() && exists("DEBUG.TEST")) {
   print("DEBUG IS ON -- COMMAND LINE PARAMETERS IGNORED")
   commandArgs <- function(trailingOnly) {
     c("~/temp/wt-1.cp.gff",
-      "~/temp/cp_shard_0.gff",
-      "~/temp/cp_shard_1.gff"
+      "~/temp/cp_shard_0.gff"
       )
   }
 }

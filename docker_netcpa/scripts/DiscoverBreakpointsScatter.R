@@ -40,8 +40,8 @@ if (interactive() && exists("DEBUG.TEST")) {
       "/n/groups/churchman/rds19/data/S005/wt-1.pos.bedgraph.gz",
       "/n/groups/churchman/rds19/data/S005/wt-1.neg.bedgraph.gz",
       "400", # Maximum gene body length
-      "5", # n.genes
-      "2") # n.shards
+      "16", # n.genes
+      "1") # n.shards
   }
 }
 #  .............TO HERE

@@ -7,6 +7,8 @@
 #   {shard_n.rds}    # changepoint input
 #   {changepoints.gff}    # changepoint output
 #   {K.max}   # maximum number of changepoints
+#   {algorithm} # name of algorithm to run
+#   {threads} # if 1, then no multiprocessing, otheerwise # of threads, 0 for all - 1
 #
 
 # To run with embedded parameters, set DEBUG.TEST <- TRUE
@@ -14,7 +16,6 @@
 suppressPackageStartupMessages({
   library(GenomicRanges)
   library(rtracklayer)
-  library(breakpoint)
   library(tidyverse)
   library(plyranges)
   library(parallel)
@@ -31,7 +32,9 @@ if (interactive() && exists("DEBUG.TEST")) {
   commandArgs <- function(trailingOnly) {
     c("~/temp/shard_0.rds",
       "~/temp/cp_shard_0.gff",
-      "12" # Kmax (maximum number of segments)
+      "12", # Kmax (maximum number of segments)
+      "CEZINB",
+      "1"
       )
   }
 }
@@ -42,56 +45,96 @@ args <- commandArgs(trailingOnly = TRUE)
 input.filename <- args[1]
 output.filename <- args[2]
 Kmax <- as.numeric(args[3])
+algorithm <- args[4]
+threads <- as.numeric(args[5])
 
-print(sprintf("Starting at %s.  Shard name = %s.", 
-        Sys.time(), input.filename))
+# Select algorithm
+# Each algorithm has a function at the getbp entry:
+# f(s, kMax), where s is an integer array of scores and kMax is an integer, maximum number of breakpoints to consider
+# the result is a named list with the vanue named tau an array of integers representing the breakpoints 
+selected_algorithm <- switch(algorithm,
+           CEZINB = list(lib_name = "breakpoint", 
+                   getbp = function(s, Kmax) {
+                     u <- data.frame(score = s)
+                     # NOTE: This is *always* + direction. We assume no bias in this algorithm by strand
+                     seg <- try(CE.ZINB(data = u, Nmax = Kmax, parallel = FALSE), silent = FALSE)
+                     if (inherits(seg, c("character", "try-error"))) {
+                       seg <- list(tau = numeric(0))
+                     }
+                     list(tau = seg$BP.Loc, BIC = seg$BIC, ll = seg$ll)
+                   }
+                 )
+           )
 
-algorithm <- "CEZINB"
-
-get_change_points <- function(s) {
-  u <- data.frame(score = s)
-  # NOTE: This is *always* + direction. We assume no bias in this agorithm by strand
-  seg <- try(CE.ZINB(data = u, Nmax = Kmax, parallel = FALSE), silent = FALSE)
-  if (inherits(seg, c("character", "try-error"))) {
-    tau <- numeric(0)
-  } else {
-    tau <- seg$BP.Loc
-  }
-  result <- tibble(seq_index = seq(length(tau) + 1),
-         s.start = c(1, tau), s.end = c(tau - 1, nrow(u))) %>%
-    mutate(m = map2_dbl(s.start, s.end,
-                        function(a, b, c) mean(c[a:b]), u$score),
-                      #TODO {var} or {v}
-                      #TODO Round m and v
-                      var = map2_dbl(s.start, s.end,
-                          function(a, b, c) var(c[a:b]), u$score))
-  result
+if (is.null(selected_algorithm)) {
+  stop(sprintf("algorithm '%s' not available", algorithm))
 }
 
-mc.cores <- max(detectCores(), 2) - 1
-registerDoMC(cores = mc.cores)
-start.time <- Sys.time()
-print(sprintf("Starting at %s, Number of cores to use = %d",
-             as.character(start.time), mc.cores))
+if (!require(selected_algorithm$lib_name, character.only = TRUE))
+{
+  stop(sprintf("Could not load package '%s' for algorithm '%s'", selected_algorithm$lib_name, algorithm))
+}
 
-readRDS(input.filename) %>% 
+get_change_points <- function(s) {
+  start.time <- Sys.time()
+  props <- selected_algorithm$getbp(s, Kmax)
+  elapsed.time <- as.numeric(difftime(Sys.time(), start.time, units = "secs"))
+  tau <- props$tau
+  props$elapsed_time <- elapsed.time
+  result <- tibble(seq_index = seq(length(tau) + 1),
+         s.start = c(1, tau), s.end = c(tau - 1, length(s))) %>% 
+    mutate(m = map2_dbl(s.start, s.end,
+                        function(a, b, c) mean(c[a:b]), s),
+                      var = map2_dbl(s.start, s.end,
+                          function(a, b, c) var(c[a:b]), s))
+  list(result = result, props = props)
+}
+
+# Select correct number of threads and register local multicore backend
+if (threads == 0) {
+  threads <- max(detectCores(), 2) - 1
+}
+registerDoMC(cores = threads)
+
+start.time <- Sys.time()
+
+
+print(sprintf("Starting at %s.\n  Shard name=%s.  Kmax=%d.   \nAlgorithm=%s.  Threads=%d", 
+              Sys.time(), input.filename, Kmax, algorithm, threads))
+
+
+result <- readRDS(input.filename) %>% head(3) %>%
   mutate(scores = pmap(list(start, end, data), function(s, e, d) {
       locs <- map2(d$start - s + 1, d$end - d$start + 1, function(u, v) u + seq(0, v-1))
       x <- rep(0, e - s + 1)
-      # generate the score. loop sometimes beats obsucrity
+      # generate the score. loop sometimes beats obscurity
       for (i in seq_along(locs)) {
         x <- modify_at(x, locs[[i]], function(a,b) a + b, d$score[i])
       }
       x
       })) %>%
-  mutate(mu = map_dbl(scores, mean), v = map_dbl(scores, var)) %>%
-  mutate(segments = foreach(s = .$scores) %dopar% get_change_points(s)) %>%
-  unnest(segments) -> result 
+  mutate(mu = map_dbl(scores, mean), v = map_dbl(scores, var)) %>% # TODO: %do% vice %dopar%
+  mutate(tmp = foreach(s = .$scores) %do% get_change_points(s)) %>%
+  mutate(results = map(tmp, function(u) u[[1]][1]),
+         props =  map(tmp, function(u) u[[1]][2]))
+### TODO list returned from get_change_points --> two column tibble (list of integer, property bag)
+  browser()
+
+r <-  foreach(s = result$scores) %do% get_change_points(s)
+c2 <- lapply(r, function(u) r[[1]][2])
+c1 <- lapply(r, function(u) r[[1]][1])
+df1 <- tibble(segmentsnew = c1[[1]], props = c2)
+result %>% bind_cols(df1)
+
+  
+# %>%
+#   unnest(segments) -> result
 
 
 gr.out <- GRanges(seqnames = result$seqnames,
                   strand = result$strand,
-                  ranges = IRanges(start = result$s.start, end = result$s.end),
+                  ranges = IRanges(start = result$s.start + result$start - 1, 
+                                   end = result$s.end + result$start - 1),
                   tx_name = result$ID,
                   seq_index = result$seq_index,
                   type = "seq_index",

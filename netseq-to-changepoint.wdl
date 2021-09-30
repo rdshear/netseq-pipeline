@@ -43,6 +43,7 @@ workflow netsq_to_changepoint {
             input: 
                 workfile = genespec,
                 Output_Filename = Ofile,
+                Cp_algorithm = Cp_algorithm,
                 MaxK = MaxGenes,
 
                 docker = docker_netcpa,
@@ -103,6 +104,7 @@ task DiscoverBreakpoints {
         File workfile
         String Output_Filename
         Int MaxK
+        String Cp_algorithm
 
         String docker
         Int threads
@@ -115,7 +117,9 @@ task DiscoverBreakpoints {
         Rscript --vanilla /scripts/DiscoverBreakpointsWorker.R \
             ~{workfile} \
             ~{Output_Filename} \
-            ~{MaxK}
+            ~{MaxK} \
+            ~{Cp_algorithm} \
+            ~{threads}
     >>>
 
     output {

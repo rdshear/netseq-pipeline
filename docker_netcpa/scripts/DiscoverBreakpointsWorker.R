@@ -44,6 +44,7 @@ args <- commandArgs(trailingOnly = TRUE)
 
 input.filename <- args[1]
 output.filename <- args[2]
+<<<<<<< HEAD
 Kmax <- as.numeric(args[3])
 algorithm <- args[4]
 threads <- as.numeric(args[5])
@@ -69,6 +70,17 @@ selected_algorithm <- switch(algorithm,
 if (is.null(selected_algorithm)) {
   stop(sprintf("algorithm '%s' not available", algorithm))
 }
+=======
+GeneMaxLength <- as.numeric(args[3]) # Truncate gene to this length (or inf if 0)
+Kmax <- as.numeric(args[4])
+
+source_data <- readRDS(args[1])
+
+print(sprintf("Starting at %s.  Shard name = %s. Genes = %d", 
+        Sys.time(), input.filename, length(source_data)))
+
+algorithm <- "CEZINB"
+>>>>>>> 08a32a114bae062bb68887ae03241d34b99d66d5
 
 if (!require(selected_algorithm$lib_name, character.only = TRUE))
 {

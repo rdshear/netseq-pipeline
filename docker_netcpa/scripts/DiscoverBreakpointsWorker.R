@@ -107,40 +107,28 @@ result <- readRDS(input.filename) %>% head(3) %>%
   mutate(scores = pmap(list(start, end, data), function(s, e, d) {
       locs <- map2(d$start - s + 1, d$end - d$start + 1, function(u, v) u + seq(0, v-1))
       x <- rep(0, e - s + 1)
-      # generate the score. loop sometimes beats obscurity
+      # convert GRanges scores to an integer array. A loop sometimes beats obscurity
       for (i in seq_along(locs)) {
         x <- modify_at(x, locs[[i]], function(a,b) a + b, d$score[i])
       }
       x
       })) %>%
-  mutate(mu = map_dbl(scores, mean), v = map_dbl(scores, var)) %>% # TODO: %do% vice %dopar%
-  mutate(tmp = foreach(s = .$scores) %do% get_change_points(s)) %>%
-  mutate(results = map(tmp, function(u) u[[1]][1]),
-         props =  map(tmp, function(u) u[[1]][2]))
-### TODO list returned from get_change_points --> two column tibble (list of integer, property bag)
-  browser()
+  mutate(mu = map_dbl(scores, mean), v = map_dbl(scores, var)) %>% 
+  mutate(tmp = foreach(s = .$scores) %dopar% get_change_points(s)) %>% 
+  mutate(segments = lapply(tmp, function(u) u[[1]]),
+                  props = lapply(tmp, function(u) u[[2]]), tmp = NULL)
 
-r <-  foreach(s = result$scores) %do% get_change_points(s)
-c2 <- lapply(r, function(u) r[[1]][2])
-c1 <- lapply(r, function(u) r[[1]][1])
-df1 <- tibble(segmentsnew = c1[[1]], props = c2)
-result %>% bind_cols(df1)
-
-  
-# %>%
-#   unnest(segments) -> result
-
-
-gr.out <- GRanges(seqnames = result$seqnames,
-                  strand = result$strand,
-                  ranges = IRanges(start = result$s.start + result$start - 1, 
-                                   end = result$s.end + result$start - 1),
-                  tx_name = result$ID,
-                  seq_index = result$seq_index,
+r <- result %>% unnest(segments)
+gr.out <- GRanges(seqnames = r$seqnames,
+                  strand = r$strand,
+                  ranges = IRanges(start = r$s.start + r$start - 1, 
+                                   end = r$s.end + r$start - 1),
+                  tx_name = r$ID,
+                  seq_index = r$seq_index,
                   type = "seq_index",
                   algorithm = algorithm,
-                  m = round(result$m,4),
-                  v = round(result$var,4))
+                  m = round(r$m,4),
+                  v = round(r$var,4))
 
 end.time <- Sys.time()
 elapsed.time <- difftime(end.time, start.time, units = "secs")
@@ -150,8 +138,6 @@ total_width <- sum(result$end - result$start)
 time.per.nt <- elapsed.time / total_width
 
   
-  # # TODO: Carry BIC and logLikelihood
-  # # # TODO: get segment statistics
   # # # TODO: reverse negative strand 
   # # IRanges(start = c(1, seg + 1), end = c(seg, length(s)))
   # # # TODO: report multi-map removal areas

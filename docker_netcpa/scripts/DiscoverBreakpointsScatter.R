@@ -36,11 +36,11 @@ if (interactive() && exists("DEBUG.TEST")) {
   print("DEBUG IS ON -- COMMAND LINE PARAMETERS IGNORED")
   setwd("~/temp/")
   commandArgs <- function(trailingOnly) {
-    c("/n/groups/churchman/rds19/data/S005/small_genelist.gff",
+    c("/n/groups/churchman/rds19/data/S005/genelist.gff",
       "/n/groups/churchman/rds19/data/S005/wt-1.pos.bedgraph.gz",
       "/n/groups/churchman/rds19/data/S005/wt-1.neg.bedgraph.gz",
       "800", # Maximum gene body length
-      "0", # n.genes
+      "12", # n.genes
       "1") # n.shards
   }
 }

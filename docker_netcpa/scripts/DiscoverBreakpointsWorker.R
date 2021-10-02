@@ -64,7 +64,7 @@ selected_algorithm <- switch(algorithm,
                      list(tau = seg$BP.Loc, BIC = seg$BIC, ll = seg$ll)
                    }
                  )
-           )
+          )
 
 if (is.null(selected_algorithm)) {
   stop(sprintf("algorithm '%s' not available", algorithm))
@@ -92,9 +92,9 @@ get_change_points <- function(s) {
 
 # Select correct number of threads and register local multicore backend
 if (threads == 0) {
-  threads <- max(detectCores(), 2) - 1
+  threads <- max(detectCores(), 2)
 }
-registerDoMC(cores = threads)
+registerDoMC(cores = threads - 1)
 
 start.time <- Sys.time()
 

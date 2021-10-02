@@ -3,36 +3,29 @@
 # disregarding multi-mapped regions
 # 
 # Usage:
-# Rscript --vanilla scripts/DiscoverBreakpoints2.R \
+# Rscript --vanilla scripts/DiscoverBreakpoints.R \
+#   {config.file.name} \
 #   {reference.gene.list.filename} \
 #   {max.gene.length} {K.max} {max.genes} \
 #   {sample.name} \
 #   {output.file}
-#
-# Example:
-# Rscript --vanilla scripts/DiscoverBreakpoints2.R \
-    # /n/groups/churchman/rds19/data/S005/genelist.gff \
-    # 0 \
-    # 12 \
-    # 5 \
-    # wt-1 \
-    # /n/groups/churchman/rds19/data/S005/ \
-    # /n/groups/churchman/rds19/data/S005/ 
 
 # To run with embedded parameters, set DEBUG.TEST <- TRUE
 
 suppressPackageStartupMessages({
   library(parallel)
-  library(GenomicRanges)
+  # library(yaml)
+  # library(GenomicRanges)
   library(rtracklayer)
+  # library(SummarizedExperiment)
   library(breakpoint)
   library(TxDb.Scerevisiae.UCSC.sacCer3.sgdGene)
 })
 set.seed(20190416)
 
 # DEBUG ONLY FROM HERE.....
-DEBUG.TEST <- TRUE
-if (interactive() && exists("DEBUG.TEST")) {
+# DEBUG.TEST <- TRUE
+if (exists("DEBUG.TEST")) {
   print("DEBUG IS ON -- COMMAND LINE PARAMETERS IGNORED")
   commandArgs <- function(trailingOnly) {
     c("/n/groups/churchman/rds19/data/S001/refdata/config.json",
@@ -40,7 +33,7 @@ if (interactive() && exists("DEBUG.TEST")) {
       "0", # Maximum gene body length
       "12", # Kmax (maximum number of segments)
       "2", # Sample size
-      "wt-1",
+      "wt-2",
       "/n/groups/churchman/rds19/data/S005/",
       "/n/groups/churchman/rds19/data/S005/")
   }
@@ -85,8 +78,9 @@ if (maxGenes > 0 & maxGenes < length(g)) {
   g <- g[sort(sample(length(g), maxGenes))]
 }
 
-result <- mclapply(as(g, "GRangesList"), function(u) {
-  is.plus <- as.logical(as.character(strand(u)) == "+")
+#result <- mclapply(as(g, "GRangesList"), function(u) {
+result <- lapply(as(g, "GRangesList"), function(u) {
+    is.plus <- as.logical(as.character(strand(u)) == "+")
   s <- import(ifelse(is.plus, infile.pos, infile.neg), which = u, genome = "sacCer3")
   # if there is no overlap between the feature (u) and the bedGraph entries,
   # then mcolAsRleList will fail. Workaround follows
@@ -152,7 +146,7 @@ result <- unlist(GRangesList(result))
   # c(tx_name = u$tx_name, mu = mu, v = v, 
   #   mzl = head(sort(runLength(s), decreasing = TRUE)))
 
-outfile <- file.path(output.directory, paste0(sample.name, "_", algorithm, ".gff3"))
+outfile <- file.path(output.directory, paste0(sample.name, ".", algorithm, ".gff3"))
 export(result, con = outfile, index = TRUE)
 
 sprintf("Completed at %s\n", Sys.time())

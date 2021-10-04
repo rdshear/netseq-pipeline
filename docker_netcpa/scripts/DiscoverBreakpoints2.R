@@ -4,69 +4,81 @@
 # 
 # Usage:
 # Rscript --vanilla scripts/DiscoverBreakpoints.R \
-#   {config.file.name} \
 #   {reference.gene.list.filename} \
-#   {max.gene.length} {K.max} {max.genes} \
-#   {sample.name} \
-#   {output.file}
+#   {max.gene.length} \
+#   {K.max} \
+#   {max.genes} \
+#   {algorithm} \
+#   {pos begraph filename} \
+#   {neg begraph filename} \
+#   {output.file name}
 
 # To run with embedded parameters, set DEBUG.TEST <- TRUE
 
 suppressPackageStartupMessages({
   library(parallel)
-  # library(yaml)
-  # library(GenomicRanges)
+  library(GenomicRanges)
   library(rtracklayer)
-  # library(SummarizedExperiment)
   library(breakpoint)
-  library(TxDb.Scerevisiae.UCSC.sacCer3.sgdGene)
 })
 set.seed(20190416)
 
 # DEBUG ONLY FROM HERE.....
-# DEBUG.TEST <- TRUE
-if (exists("DEBUG.TEST")) {
+DEBUG.TEST <- TRUE
+if (interactive() && exists("DEBUG.TEST")) {
   print("DEBUG IS ON -- COMMAND LINE PARAMETERS IGNORED")
   commandArgs <- function(trailingOnly) {
-    c("/n/groups/churchman/rds19/data/S001/refdata/config.json",
-      "/n/groups/churchman/rds19/data/S001/refdata/subject_genes.gff3",
-      "0", # Maximum gene body length
+    c("/n/groups/churchman/rds19/data/S005/genelist.gff",
+      "800", # Maximum gene body length
       "12", # Kmax (maximum number of segments)
-      "2", # Sample size
-      "wt-2",
-      "/n/groups/churchman/rds19/data/S005/",
-      "/n/groups/churchman/rds19/data/S005/")
+      "5", # Sample size
+      "CEZINB",
+      "/n/groups/churchman/rds19/data/S005/wt-2.pos.bedgraph.gz",
+      "/n/groups/churchman/rds19/data/S005/wt-2.neg.bedgraph.gz",
+      "/n/groups/churchman/rds19/data/S005/wt-2.CEZINB.gff3.gz")
+
   }
 }
 #  .............TO HERE
 
 args <- commandArgs(trailingOnly = TRUE)
 
-config.filename <- args[1]
-subject_genes.filename <- args[2]
-GeneMaxLength <- as.numeric(args[3]) # Truncate gene to this length (or inf if 0)
-Kmax <- as.numeric(args[4])
-maxGenes <- as.numeric(args[5]) # if > 0 sample this number of genes
-sample.name <- args[6]
-input.directory <- args[7]
-output.directory <- args[8]
+subject_genes.filename <- args[1]
+GeneMaxLength <- as.numeric(args[2]) # Truncate gene to this length (or inf if 0)
+Kmax <- as.numeric(args[3])
+maxGenes <- as.numeric(args[4]) # if > 0 sample this number of genes
+sample.name <- args[5]
+bedgraph.pos.filename <- args[6]
+bedgraph.neg.filename <- args[7]
+out.filename <- args[8]
 
-sprintf("Starting at %s. Sample name = %s. Max genes = %d", 
-        Sys.time(), sample.name, maxGenes)
+start.time <- Sys.time()
+cat(sprintf("Starting at %s. Sample name = %s. Max genes = %d", 
+        start.time, sample.name, maxGenes))
 
 algorithm <- "CEZINB"
 
-options(mc.cores = detectCores())
-sprintf("Number of cores detected = %d", getOption("mc.cores"))
-
-infile.pos <- paste0(input.directory, sample.name, ".pos.bedgraph.gz")
-infile.neg <- paste0(input.directory, sample.name, ".neg.bedgraph.gz")
+cores <- detectCores()
+options(mc.cores = max(cores - 1, 1))
+cat(sprintf("Number of cores detected = %d. Cores to use = %d.", cores, getOption("mc.cores")))
 
 
-sinfo <- seqinfo(TxDb.Scerevisiae.UCSC.sacCer3.sgdGene)
-g <- import(subject_genes.filename)
-seqinfo(g) <- sinfo
-names(g) <- g$ID
+# read the two bedgraph files into a single GRanges object
+scores <- mapply(function(strand_sym, infilename) {
+  x <- import(infilename, genome = "sacCer3")
+  strand(x) <- strand_sym
+  x
+}, list('+', '-'), list(bedgraph.pos.filename, bedgraph.neg.filename), SIMPLIFY = FALSE)
+scores <- unlist(GRangesList(scores))
+
+# now make the GRanges object dense (zeros instead of gaps)
+x <- gaps(scores)
+x$score <- 0
+scores <- sort(c(scores, x))
+scores <- scores[strand(scores) != "*"]
+
+# the genes to query
+g <- import(subject_genes.filename, genome = 'sacCer3')
 
 # truncate gene lengths if so desired
 if (GeneMaxLength > 0) {
@@ -78,76 +90,84 @@ if (maxGenes > 0 & maxGenes < length(g)) {
   g <- g[sort(sample(length(g), maxGenes))]
 }
 
-#result <- mclapply(as(g, "GRangesList"), function(u) {
-result <- lapply(as(g, "GRangesList"), function(u) {
-    is.plus <- as.logical(as.character(strand(u)) == "+")
-  s <- import(ifelse(is.plus, infile.pos, infile.neg), which = u, genome = "sacCer3")
-  # if there is no overlap between the feature (u) and the bedGraph entries,
-  # then mcolAsRleList will fail. Workaround follows
-  if (length(s) == 0) {
-    s <- Rle(values = 0, lengths = width(u))
-  } else {
-    s <- mcolAsRleList(s, "score")[[seqnames(u)]][start(u):end(u)]
-  }
-  s <- replace(s, is.na(s), 0)
 
-  mu <- mean(s)
-  v <- var(s)
+h <- findOverlaps(g, scores)
+h <- split(subjectHits(h), queryHits(h))
 
-  # NOTE: This is *always* + direction. We assume no bias in this agorithm by strand
-  seg <- try(CE.ZINB(data = data.frame(s), Nmax = Kmax, parallel = FALSE), silent = TRUE)
-  if (inherits(seg, c("character", "try-error"))) {
-    tau <- numeric(0)
-  } else {
-    tau <- seg$BP.Loc
-  }
-  n <- length(tau) + 1
-  
-  tr <- cbind(c(1, tau), c(tau - 1, length(s)))
-
-  
-  stats <- apply(tr, 1, function(w) {
-    v <- s[w[1]:w[2]]
-    c(m = mean(v), v = var(v))
-  })
-  
-  result <- GRanges(seqnames = rep(seqnames(u)[1], n),
-              strand = rep(strand(u)[1], n),
-              ranges = IRanges(start = start(u) - 1 + tr[, 1], 
-                end = start(u) - 1 + tr[, 2]),
-              seq_index = seq(n),
-              type = "seq_index",
-              source = "DiscoverBreakpoints2",
-             algorithm = rep(algorithm, n),
-             m = stats["m", ],
-             v = stats["v", ])
-  result
+g$scores <- lapply(seq_along(g), function(i) {
+  u <- g[i]
+  v <- scores[h[[i]]]
+  start(v[1]) <- start(u)
+  end(v[length(v)]) <- end(u)
+  rep(v$score, width(v))
 })
 
-# HACK. Can't set the name in the GRanges constructor
 
-for (i in seq_along(result)) {
-  result[[i]]$tx_name = names(result)[i]
-}
+result <- mclapply(seq_along(g), function(i) {
+#  result <- mclapply(seq_along(g), function(i) {
+    u <- g[i]
+
+    s <- u$scores[[1]]
+    mu <- mean(s)
+    v <- var(s)
+  
+    # NOTE: This is *always* + direction. We assume no bias in this agorithm by strand
+    seg <- try(CE.ZINB(data = data.frame(s), Nmax = Kmax, parallel = FALSE), silent = TRUE)
+    if (inherits(seg, c("character", "try-error"))) {
+      tau <- numeric(0)
+    } else {
+      tau <- seg$BP.Loc
+    }
+    n <- length(tau) + 1
+    
+    tr <- cbind(c(1, tau), c(tau - 1, length(s)))
+    
+    stats <- apply(tr, 1, function(w) {
+      v <- s[w[1]:w[2]]
+      c(m = mean(v), v = var(v))
+    })
+    if (as.vector(strand(u)) == "+") {
+      sqi <- 1:n
+    } else
+    {
+      sqi <- n:1
+    }
+    result <- GRanges(seqnames = seqnames(u),
+                strand = strand(u),
+                ranges = IRanges(start = start(u) - 1 + tr[, 1], 
+                  end = start(u) - 1 + tr[, 2]),
+                seq_index = sqi,
+                type = "seq_index",
+                source = "DiscoverBreakpoints2",
+               algorithm = algorithm,
+               tx_name = as.character(u$Name),
+               m = stats["m", ],
+               v = stats["v", ])
+    result
+  }, 
+  mc.preschedule = FALSE)
 
 result <- unlist(GRangesList(result))
+result$m <- round(result$m, 3)
+result$v <- round(result$v, 3)
+result <- sort(result)
 
-
-
-#  mcols(result)$tx_name <- as.character(u$tx_name)
-  #result$type <- Rle(values = "seq_index", lengths = n)
-  
-  result
   # # TODO: Carry BIC and logLikelihood
-  # # # TODO: get segment statistics
   # # # TODO: reverse negative strand 
-  # # IRanges(start = c(1, seg + 1), end = c(seg, length(s)))
   # # # TODO: report multi-map removal areas
-  # c(tx_name = u$tx_name, mu = mu, v = v, 
-  #   mzl = head(sort(runLength(s), decreasing = TRUE)))
 
-outfile <- file.path(output.directory, paste0(sample.name, ".", algorithm, ".gff3"))
-export(result, con = outfile, index = TRUE)
+export(result, con = out.filename, index = TRUE)
 
-sprintf("Completed at %s\n", Sys.time())
-print(sessionInfo())
+end.time <- Sys.time()
+run.time <-  as.numeric(end.time - start.time)
+n.genes <- length(g)
+n.segments <- length(result)
+n.bases <- sum(width(g))
+
+cat(sprintf("Completed at %s\nRun time: %.3f sec\ngenes: %.0f \nbases: %.0f\nsec / gene: %.3f\nmsec/base: %.3f", 
+            as.character(end.time), run.time, n.genes, n.bases, run.time / n.genes, run.time * 1000 / n.bases))
+
+
+if (!interactive()) {
+  print(sessionInfo())
+}

@@ -9,8 +9,8 @@
 #   {K.max} \
 #   {max.genes} \
 #   {algorithm} \
-#   {pos begraph filename} \
-#   {neg begraph filename} \
+#   {pos.begraph.filename} \
+#   {neg.begraph.filename} \
 #   {output.file name}
 
 # To run with embedded parameters, set DEBUG.TEST <- TRUE
@@ -35,7 +35,7 @@ if (interactive() && exists("DEBUG.TEST")) {
       "CEZINB",
       "/n/groups/churchman/rds19/data/S005/wt-2.pos.bedgraph.gz",
       "/n/groups/churchman/rds19/data/S005/wt-2.neg.bedgraph.gz",
-      "/n/groups/churchman/rds19/data/S005/wt-2.CEZINB.gff3.gz")
+      "/n/groups/churchman/rds19/data/S005/wt-2.CEZINB.gff3")
 
   }
 }
@@ -156,7 +156,7 @@ result <- sort(result)
   # # # TODO: reverse negative strand 
   # # # TODO: report multi-map removal areas
 
-export(result, con = out.filename, index = TRUE)
+export(result, con = out.filename)
 
 end.time <- Sys.time()
 run.time <-  as.numeric(end.time - start.time)

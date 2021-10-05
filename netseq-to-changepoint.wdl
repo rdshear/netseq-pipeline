@@ -26,44 +26,60 @@ workflow netsq_to_changepoint {
         String docker_netcpa = 'rdshear/netcpa'
     }
 
-    call CreateShards {
+    String results_filename = "~{sampleName}.cp.~{Cp_algorithm}.gff3"
+
+    call DiscoverBreakpoints {
         input:
             genelist = genelist,
+            GeneTrimLength = GeneTrimLength,
+            MaxGenes = MaxGenes,
+            MaxK = MaxK,
+            Cp_algorithm = Cp_algorithm,
             CoverageBedgraph_Pos = CoverageBedgraph_Pos,
             CoverageBedgraph_Neg = CoverageBedgraph_Neg,
-            GeneTrimLength = GeneTrimLength,
-            ShardCount = ShardCount,
-            MaxGenes = MaxGenes,
-            docker = docker_netcpa
+            Output_Filename = results_filename,
+
+            docker = docker_netcpa,
+            threads = threads,
+            preemptible = preemptible
     }
 
-    scatter (genespec in CreateShards.shard_specs) {
-        String Ofile = 'cp_' + basename(genespec)
-        call DiscoverBreakpoints {
-            input: 
-                workfile = genespec,
-                Output_Filename = Ofile,
-                Cp_algorithm = Cp_algorithm,
-                MaxK = MaxGenes,
+    # call CreateShards {
+    #     input:
+    #         genelist = genelist,
+    #         CoverageBedgraph_Pos = CoverageBedgraph_Pos,
+    #         CoverageBedgraph_Neg = CoverageBedgraph_Neg,
+    #         GeneTrimLength = GeneTrimLength,
+    #         ShardCount = ShardCount,
+    #         MaxGenes = MaxGenes,
+    #         docker = docker_netcpa
+    # }
 
-                docker = docker_netcpa,
-                threads = threads,
-                preemptible = preemptible
-        }
-    }
+    # scatter (genespec in CreateShards.shard_specs) {
+    #     String Ofile = 'cp_' + basename(genespec)
+    #     call DiscoverBreakpoints {
+    #         input: 
+    #             workfile = genespec,
+    #             Output_Filename = Ofile,
+    #             Cp_algorithm = Cp_algorithm,
+    #             MaxK = MaxGenes,
 
-    String results_filename = "~{sampleName}_cp_~{Cp_algorithm}.gff3"
+    #             docker = docker_netcpa,
+    #             threads = threads,
+    #             preemptible = preemptible
+    #     }
+    # }
 
-    call GatherShards {
-        input:
-            outFileName = results_filename,
-            shardResults = DiscoverBreakpoints.result_file,
-            docker = docker_netcpa
-    }
+    # call GatherShards {
+    #     input:
+    #         outFileName = results_filename,
+    #         shardResults = DiscoverBreakpoints.result_file,
+    #         docker = docker_netcpa
+    # }
     
-    output {
-        File changepoint_segments = GatherShards.results
-    }
+    # output {
+    #     File changepoint_segments = GatherShards.results
+    # }
 }
 
 task CreateShards {
@@ -101,10 +117,14 @@ task CreateShards {
 
 task DiscoverBreakpoints {
     input {
-        File workfile
-        String Output_Filename
+        File genelist
+        Int GeneTrimLength
+        Int MaxGenes
         Int MaxK
         String Cp_algorithm
+        File CoverageBedgraph_Pos
+        File CoverageBedgraph_Neg
+        String Output_Filename
 
         String docker
         Int threads
@@ -114,12 +134,15 @@ task DiscoverBreakpoints {
     command <<<
         set -e
 
-        Rscript --vanilla /scripts/DiscoverBreakpointsWorker.R \
-            ~{workfile} \
-            ~{Output_Filename} \
+        Rscript --vanilla /scripts/DiscoverBreakpoints2.R \
+            ~{genelist} \
+            ~{GeneTrimLength} \
             ~{MaxK} \
+            ~{MaxGenes} \
             ~{Cp_algorithm} \
-            ~{threads}
+            ~{CoverageBedgraph_Pos} \
+            ~{CoverageBedgraph_Neg} \
+            ~{Output_Filename}
     >>>
 
     output {

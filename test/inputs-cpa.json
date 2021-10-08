@@ -5,8 +5,8 @@
     "netsq_to_changepoint.CoverageBedgraph_Neg" : " /n/groups/churchman/rds19/data/S005/wt-2.neg.bedgraph.gz",
     "netsq_to_changepoint.Cp_algorithm" : "CEZINB",
     "netsq_to_changepoint.ShardCount" : 1,
-    "netsq_to_changepoint.MaxGenes" : 5,
-    "netsq_to_changepoint.MaxK" : 12,
+    "netsq_to_changepoint.MaxGenes" : 256,
+    "netsq_to_changepoint.MaxK" : 8,
     "netsq_to_changepoint.GeneTrimLength" : 800,
     "netsq_to_changepoint.threads" : 4
     

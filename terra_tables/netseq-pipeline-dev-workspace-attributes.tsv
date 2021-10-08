@@ -1,2 +1,0 @@
-workspace:MaxK	GeneTrimLength	threads	ShardCount	MaxGenes	refFasta	genelist	Cp_algorithm
-10	800	8	2	32	\"gs://fc-3853b9d9-ddfd-4f0f-a505-29fa9ea4003f/sacCer3.fa\"	\"gs://fc-353b14e5-19da-46ef-b358-f5b85cffef02/genelist.gff\"	\"cezinb\"

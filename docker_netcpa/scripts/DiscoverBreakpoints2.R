@@ -30,8 +30,8 @@ if (interactive() && exists("DEBUG.TEST")) {
   commandArgs <- function(trailingOnly) {
     c("/n/groups/churchman/rds19/data/S005/genelist.gff",
       "800", # Maximum gene body length
-      "12", # Kmax (maximum number of segments)
-      "5", # Sample size
+      "8", # Kmax (maximum number of segments)
+      "256", # Sample size
       "CEZINB",
       "/n/groups/churchman/rds19/data/S005/wt-2.pos.bedgraph.gz",
       "/n/groups/churchman/rds19/data/S005/wt-2.neg.bedgraph.gz",
@@ -94,29 +94,27 @@ if (maxGenes > 0 & maxGenes < length(g)) {
 h <- findOverlaps(g, scores)
 h <- split(subjectHits(h), queryHits(h))
 
-g$scores <- lapply(seq_along(g), function(i) {
-  u <- g[i]
-  v <- scores[h[[i]]]
-  start(v[1]) <- start(u)
-  end(v[length(v)]) <- end(u)
-  rep(v$score, width(v))
-})
-
-
 result <- mclapply(seq_along(g), function(i) {
-#  result <- mclapply(seq_along(g), function(i) {
     u <- g[i]
-
-    s <- u$scores[[1]]
+    x <- scores[h[[i]]]
+    start(x[1]) <- start(u)
+    end(x[length(x)]) <- end(u)
+    s <- rep(x$score, width(x))
+    
     mu <- mean(s)
     v <- var(s)
-  
-    # NOTE: This is *always* + direction. We assume no bias in this agorithm by strand
-    seg <- try(CE.ZINB(data = data.frame(s), Nmax = Kmax, parallel = FALSE), silent = TRUE)
-    if (inherits(seg, c("character", "try-error"))) {
+    # heuristic. For the CE.ZINB for mean occupancy < 0.05 reads / NT
+    if (mu < 0.05) {
       tau <- numeric(0)
-    } else {
-      tau <- seg$BP.Loc
+    } else
+    {
+      # NOTE: This is *always* + direction. We assume no bias in this algorithm by strand
+      seg <- try(CE.ZINB(data = data.frame(s), Nmax = Kmax, parallel = FALSE), silent = TRUE)
+      if (inherits(seg, c("character", "try-error"))) {
+        tau <- numeric(0)
+      } else {
+        tau <- seg$BP.Loc
+      }
     }
     n <- length(tau) + 1
     
@@ -143,9 +141,14 @@ result <- mclapply(seq_along(g), function(i) {
                tx_name = as.character(u$Name),
                m = stats["m", ],
                v = stats["v", ])
+
+    # TODO LOG
+    # writeLines(kableExtra::kable(result, format = "pipe"), stderr())
+    # writeLines(as.character(as.numeric(Sys.time() - time.in, unit = "secs")), stderr())
+    # writeLines("---", stderr())
+    # 
     result
-  }, 
-  mc.preschedule = FALSE)
+  })
 
 result <- unlist(GRangesList(result))
 result$m <- round(result$m, 3)
@@ -153,13 +156,12 @@ result$v <- round(result$v, 3)
 result <- sort(result)
 
   # # TODO: Carry BIC and logLikelihood
-  # # # TODO: reverse negative strand 
   # # # TODO: report multi-map removal areas
 
 export(result, con = out.filename)
 
 end.time <- Sys.time()
-run.time <-  as.numeric(end.time - start.time)
+run.time <-  as.numeric(end.time - start.time, units = "secs")
 n.genes <- length(g)
 n.segments <- length(result)
 n.bases <- sum(width(g))

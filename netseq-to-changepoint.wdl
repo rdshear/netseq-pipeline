@@ -23,6 +23,7 @@ workflow netsq_to_changepoint {
         # environment
         Int threads = 8
         Int preemptible = 1
+        String memory = "8GB"
         String docker_netcpa = 'rdshear/netcpa'
     }
 
@@ -41,7 +42,8 @@ workflow netsq_to_changepoint {
 
             docker = docker_netcpa,
             threads = threads,
-            preemptible = preemptible
+            preemptible = preemptible,
+            memory = memory
     }
 
     # call CreateShards {
@@ -80,6 +82,9 @@ workflow netsq_to_changepoint {
     # output {
     #     File changepoint_segments = GatherShards.results
     # }
+    output {
+        File changepoint_segments = DiscoverBreakpoints.results
+    }
 }
 
 task CreateShards {
@@ -129,6 +134,7 @@ task DiscoverBreakpoints {
         String docker
         Int threads
         Int preemptible
+        String memory
     }
 
     command <<<
@@ -146,13 +152,14 @@ task DiscoverBreakpoints {
     >>>
 
     output {
-        File result_file = Output_Filename
+        File results = Output_Filename
     }
 
     runtime {
         docker: docker
         preemptible: preemptible
         cpu: threads
+        memory: memory
     }
 }
 

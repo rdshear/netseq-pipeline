@@ -22,6 +22,7 @@ RUN mamba install -c conda-forge r-base=4.1.1 r-devtools r-biocmanager -y
 RUN mamba install r-tidyverse -y
 RUN mamba install bioconductor-GenomicRanges bioconductor-rtracklayer \
       bioconductor-plyranges -y
+RUN mamba install h2o -y
 
 # HACK ... need systemfonts for kabelExtra
 #       but kabblExtra source install fails (sep-2021)

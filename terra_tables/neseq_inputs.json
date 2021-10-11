@@ -1,1 +1,10 @@
-{"NETseq.BamToBedgraph.umi_tag":"${}","NETseq.MultimapNmax":"${}","NETseq.inputFastQ":"${this.inputFastQ}","NETseq.netseq_docker":"${}","NETseq.preemptible":"${}","NETseq.refFasta":"gs://fc-353b14e5-19da-46ef-b358-f5b85cffef02/sacCer3.fa","NETseq.sampleName":"${this.sample_id}","NETseq.threads":"${4}"}
+{
+    "NETseq.BamToBedgraph.umi_tag": "${}",
+    "NETseq.MultimapNmax": "${}",
+    "NETseq.inputFastQ": "${this.inputFastQ}",
+    "NETseq.netseq_docker": "${}",
+    "NETseq.preemptible": "${}",
+    "NETseq.refFasta": "gs://fc-353b14e5-19da-46ef-b358-f5b85cffef02/sacCer3.fa",
+    "NETseq.sampleName": "${this.sample_id}",
+    "NETseq.threads": "${4}"
+}

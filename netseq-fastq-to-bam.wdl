@@ -28,7 +28,10 @@ workflow NETseq {
         # environment
         String netseq_docker = 'rdshear/netseq'
         Int preemptible = 1
+        String memory = "8G"
     }
+
+
 
     call StarAlign {
         input:
@@ -38,6 +41,7 @@ workflow NETseq {
             MultimapNmax = MultimapNmax,
             threads = threads,
             docker = netseq_docker,
+            memory = memory,
             preemptible = preemptible
     }
 
@@ -47,6 +51,7 @@ workflow NETseq {
             sampleName = sampleName,
             threads = threads,
             docker = netseq_docker,
+            memory = memory,
             preemptible = preemptible
     }
 
@@ -77,6 +82,7 @@ task StarAlign {
         Int threads = 8
         String docker
         Int preemptible
+        String memory
     }
 
     String bamResultName = "~{sampleName}.aligned.bam"
@@ -129,7 +135,7 @@ task StarAlign {
 
     runtime {
         docker: docker
-        memory: "8G"
+        memory: memory
         cpu: threads
         disks: "local-disk 25 SSD"
         preemptible: preemptible
@@ -144,6 +150,7 @@ task BamToBedgraph {
 
         Int threads
         String docker
+        String memory
         Int preemptible
     }
 
@@ -174,7 +181,7 @@ task BamToBedgraph {
 
     runtime {
         docker: docker
-        memory: "16G"
+        memory: memory
         cpu: threads
         preemptible: preemptible
     }

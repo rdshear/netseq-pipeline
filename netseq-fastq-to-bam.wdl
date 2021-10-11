@@ -174,7 +174,7 @@ task BamToBedgraph {
 
     runtime {
         docker: docker
-        memory: "8G"
+        memory: "16G"
         cpu: threads
         preemptible: preemptible
     }

@@ -12,7 +12,7 @@ LABEL description="Docker image with components for NET-seq pipeline"
 RUN conda install -c conda-forge mamba -y
 
 # Install the needed apps
-RUN conda install -c bioconda samtools gatk4 pysam star bedtools
+RUN conda install -c bioconda  sra-tools samtools gatk4 pysam star bedtools
 
 
 # umi_tools is incompatible with other elements in the base image

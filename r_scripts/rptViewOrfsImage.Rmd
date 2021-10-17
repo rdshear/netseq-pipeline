@@ -1,0 +1,237 @@
+--- 
+title: View Gene Body First Change Point
+author: Robert Shear
+output:
+  pdf_document: default
+params:
+  display.window: 700
+  gff3: /n/groups/churchman/rds19/data/S002/features/WT-4_cliff.gff3
+  minimum.fcp.location: 20
+  neg.bedgraph: /n/groups/churchman/rds19/data/S001/aligned/WT-4_neg_cdx.bedgraph.gz
+  pos.bedgraph: /n/groups/churchman/rds19/data/S001/aligned/WT-4_pos_cdx.bedgraph.gz
+  sample.name: WT-4
+---
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE, 
+    warning = FALSE, 
+    message = FALSE,
+    fig.width = 6,
+    fig.height = 4,
+    dpi = 300)
+sample.name <- params$sample.name
+display.window <- params$display.window
+minimum.fcp.location <- params$minimum.fcp.location
+set.seed(6272017)
+
+library(fields, quietly = TRUE)
+library(GenomicRanges, quietly = TRUE)
+library(GenomicFeatures, quietly = TRUE)
+library(rtracklayer, quietly = TRUE)
+library(AnnotationDbi, quietly = TRUE)
+library(TxDb.Scerevisiae.UCSC.sacCer3.sgdGene, quietly = TRUE)
+```
+
+
+This is an analysis of first change points (FCP) for sample **`r sample.name`**. We only consider the first **`r display.window`** bases. FCP's less than **`r minimum.fcp.location`** bases from either the 3' or 5' end are disregarded.
+
+
+```{r}
+lower.trim.parameter <- 0.15 # lower 'trim' cutoff, mean occupancy / nt
+running.mean.window <- 5  # running mean width for smoothing img heat map
+
+tx <- TxDb.Scerevisiae.UCSC.sacCer3.sgdGene
+
+f.strand <- factor(c("+", "-", "*"))
+
+bedgraph2rle <- function(infile) {
+  p <- mcolAsRleList(import(infile), "score")
+  runValue(p) <- ifelse(is.na(runValue(p)), 0, runValue(p))
+  # right pad with zeros to chromosome length of reference genome
+  sl <- seqlengths(tx)
+  as(sapply(names(p), function(u) c(p[[u]], Rle(0, sl[u] - sum(runLength(p[u]))))), "RleList")
+}
+
+
+pn <- c(`+` = bedgraph2rle(params$pos.bedgraph), `-` = bedgraph2rle(params$neg.bedgraph))
+names(pn) <- strand(c("+","-"))
+
+# get the gff3 file that describes the first two segments of each ORF
+segments <- import(params$gff3)
+# TODO: Is there some way to do this as part of the import? (or the preceeding export)
+# coeerce mcols to numeric as appropriate
+names(segments) <- segments$Name
+segments$seq <- as.integer(segments$seq)
+segments$mean <- as.numeric(segments$mean)
+segments$variance <- as.numeric(segments$variance)
+segments$cliff <- as.numeric(segments$cliff)
+
+segments <- split(segments, segments$type)
+# trim expression levels. Use only [5%:95%]
+trim.range <- quantile(ecdf(segments$cds_ext$mean), c(0.05, 0.95))
+gene.names <- segments$cds_ext[segments$cds_ext$mean > trim.range[1] 
+                  & segments$cds_ext$mean < trim.range[2]]$Name
+```
+
+
+Number of ORF's in sample: `length(segments$cds_ext)`.
+
+Trimmed lower and upper 5%. Occupancy range of processed ORF's: 
+`trim.range`
+
+```{r}
+# cds_ext is the GRanges object for the selected genes
+cds_ext <- segments$cds_ext[gene.names]
+
+cds_segment <- segments$cds_segment[as.character(segments$cds_segment$Parent) %in% gene.names]
+cds_segment <- split(cds_segment, cds_segment$seq)
+for (u in 1:2) {
+  names(cds_segment[u][[1]]) <- cds_segment[u][[1]]$Parent
+}
+
+# TODO: there is a gap between seg1 end and seg2 start created in GenCliffs.R. Rivisit this
+# extract breakpoints and sort ascending
+idx <- width(cds_segment[1][[1]])
+names(idx) <- cds_segment[1][[1]]$Parent
+
+# Trim the windows...20 bases on the left and right
+display.border <- 20
+idx <- idx[idx >= display.border & idx <= display.window - display.border]
+
+idx <- sort(idx)
+
+img <- sapply(cds_ext[names(idx)], function(u) {
+  s <- as.character(strand(u))
+  w <- Rle(
+    pn[s][[1]][as.character(seqnames(u))][[1]][start(u):end(u)])
+  if (s == "-") {
+    w <- rev(w)
+  }
+  w <- as.numeric(w)
+  length(w) <- display.window
+  # normalize by gene
+  w / sum(w, na.rm = TRUE) * width(u)
+})
+
+color.map <- colorRampPalette(c("yellow", "orange", "red", "brown"), space = "Lab")(30)
+```
+
+RNAP II log_2 occupancy, normalized by gene, unit occupancy per nt, sorted by position of first change point.
+
+```{r}
+# display relative density as heat map
+x <- log2(img)
+x[which(is.na(x) | x <= -100)] <- min(x[x > -100], na.rm = TRUE)
+r <- dim(x)
+rng <- range(x)
+{
+  image.plot(x = 1:r[2], y = 1:r[1],
+    z = t(x),
+    zlim = rng,
+    col = color.map,
+    ylab = "NT from TSS", xlab = "gene", 
+    legend.lab = "normalized log2 occupancy"
+  )
+#  lines(idx, 1:length(idx), col = "black")
+}
+```
+
+RNAPII Occupancy, sorted by position of first change point. Each gene is visually stretched or compressed so that its FCP is in the center of the graph.
+
+```{r}
+# stretch / shrink the tracks so that the CP is in the middle
+# mapping image to stretch/shrink
+
+
+# TOD: Use maatrix traansformations
+img.xformed <- sapply(seq_along(idx), function(gene.id) {
+  cp <- idx[gene.id]
+  # stretch the first segment
+  z <- round(((0:(cp - 1) * display.window / 2 / cp)),digits = 0)
+  seg1 <- rep(img[1:cp, gene.id], c(z[2:length(z)], round(display.window / 2,0)) - z)
+  # grab the second segment
+  seg2.data <- img[(cp + 1):display.window, gene.id]
+  seg2.data <- seg2.data[!is.na(seg2.data)]
+  # now shrink it
+  seg2.idx <- findInterval(seq(length(seg2.data)) * display.window / 2 / length(seg2.data), seq(display.window / 2))
+  seg2 <- sapply(1:(display.window / 2), function(u) mean(seg2.data[seg2.idx == u]))
+  c(seg1, seg2)
+})
+
+# TODO: Occpancy vs. Normalized Occupancy vs. Occupancy adjusted for ORF length?
+{
+  image.plot(x = ((1:nrow(img.xformed)) - nrow(img.xformed) / 2) / nrow(img.xformed) * 2, 
+      y = 1:ncol(img.xformed), z
+      = log2(img.xformed), 
+      zlim = rng,
+      col = color.map,
+      xlab = "Change point shifted to middle", 
+      ylab = "gene", legend.lab = "normalized log2 occupancy")
+  abline(v = 0, col = "black")
+}
+```
+
+Attempt linear regression of occupancy vs. nucleotide positon on first and segment. How homogeneous are the segments?
+
+```{r}
+# what do the slopes of the first segment look like?
+slope.first <- sapply(idx, function(i) {
+  lo <- 1
+  hi <- idx[i] - 1
+  coef(glm(x ~ t, data = data.frame(t = lo:hi, x = img[lo:hi,i])))["t"]
+  }
+)
+
+slope.next100 <- sapply(idx, function(i) {
+  lo <- idx[i] + 1
+  hi <- idx[i] + 100
+  coef(glm(x ~ t, data = data.frame(t = lo:hi, x = img[lo:hi, i])))["t"]
+  }
+)
+
+boxplot(slope.first, slope.next100, names = c("1:FCP-1","FCP+1:FCP+100"),
+        main = paste("Intrasegment slopes. Sample", sample.name), 
+        sub = "Slope of linear reg within segment", ylab = "slope",
+        outline = FALSE, notch = TRUE)
+abline(h = 0, col = "blue")
+```
+
+The metagene.
+
+```{r}
+meta.cp.min <- 100
+x <- sapply(which(idx > meta.cp.min & idx + meta.cp.min < display.window), function(u) {
+  cp <- idx[u]
+  img[(cp - meta.cp.min):(cp + meta.cp.min), u]
+})
+plot(seq(from = -meta.cp.min, to = meta.cp.min), rowMeans(x, na.rm = TRUE), type = 'l',
+     main = paste("Mean occupancy aligned to first change point", sample.name),
+     xlab = "NT from FCP",
+     ylab = "Mean occupancy")
+```
+
+Is the location of the FCP correlated with occupancy?
+
+
+```{r}
+
+{
+  plot(log2(mcols(cds_ext[names(idx)])$cliff), log2(mcols(cds_ext[names(idx)])$mean), 
+     main = "Cliff direction",
+     xlab = "log2 occupancy change at cliff",
+     ylab = "log2 mean occupancy")
+  abline(v = 0, col = "red")
+}
+
+cliff_direction <- table(sign(log(cds_ext$cliff)))
+step_down <- cliff_direction["1"]
+pct_step_down <- step_down / sum(cliff_direction)
+
+```
+
+For this sample, what percentage of the FCP's are "step-down" vs "step-up"?
+
+
+N=`r sum(cliff_direction)`, step down=`r step_down` (`r round(pct_step_down*100,1)`%)
+
+
+

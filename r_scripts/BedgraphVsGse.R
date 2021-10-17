@@ -7,8 +7,10 @@ suppressPackageStartupMessages({
   library(TxDb.Scerevisiae.UCSC.sacCer3.sgdGene)
 })
 
-new_pos <- import("~/Projects/netseq-pipeline/test_results/wt-1_20210829/outputs/wt-1.pos.bedgraph.gz", genome = "sacCer3")
-new_neg <- import("~/Projects/netseq-pipeline/test_results/wt-1_20210829/outputs/wt-1.neg.bedgraph.gz")
+# TODO Parameterize and Cloudify input files
+# TODO Debug & un-hard code outliers
+new_pos <- import("/n/groups/churchman/rds19/data/S005/wt-1.pos.bedgraph.gz", genome = "sacCer3")
+new_neg <- import("/n/groups/churchman/rds19/data/S005/wt-1.neg.bedgraph.gz", genome = "sacCer3")
 old_pos <- import("/n/groups/churchman/GSE159603/wt-1.pos.bedgraph.gz", genome = "sacCer3")
 old_neg <- import("/n/groups/churchman/GSE159603/wt-1.neg.bedgraph.gz",  genome = "sacCer3")
 

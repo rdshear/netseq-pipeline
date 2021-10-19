@@ -5,25 +5,23 @@ library(GenomicRanges)
 library(rtracklayer)
 library(HresSE)
 library(fitdistrplus)
-library(yaml)
 
 set.seed(20190413)
 
-config.filename <- "/n/groups/churchman/rds19/data/S001/refdata/config.json"
-feature.filename <- "/n/groups/churchman/rds19/data/S001/refdata/subject_genes.gff3"
+feature.filename <- "/n/groups/churchman/rds19/data/S005/genelist.gff"
 occupancy.path <- "/n/groups/churchman/rds19/data/S005/"
 changepoint.path <- "/n/groups/churchman/rds19/data/S005/"
 
-outfile.path <- "/n/groups/churchman/rds19/data/S004/hresse/HresSE_all.rds"
+outfile.path <- "/n/groups/churchman/rds19/data/S005/hresse/HresSE_all.rds"
 sample.group <- "screen"
 
 # create data.frame of samples
-config <- yaml.load_file(config.filename)
-x <- config$samples
-u <- x[[1]]
-y <- lapply(x, function(u) data.frame(variant = u$variant, group = u$group, stringsAsFactors = FALSE))
-z <- Reduce(rbind, y, data.frame())
-z$sample <- names(y)
+# TODO Pull sample table
+# u <- c("wt-1", "wt-2")
+# y <- lapply(x, function(u) data.frame(variant = u$variant, group = u$group, stringsAsFactors = FALSE))
+# z <- Reduce(rbind, y, data.frame())
+# z$sample <- names(y)
+z <- data.frame(sample = c("wt-1", "wt-2"), variant = c("wt","wt"), group = c("screen", "screen"))
 rownames(z) <- z$sample
 
 # TODO: For test only
@@ -32,7 +30,7 @@ z <- z[z$group == sample.group, ]
 g <- import(feature.filename)
 names(g) <- g$ID
 # TODO: For test only
-# g <- sample(g, 32)
+g <- sample(g, 32)
  
 e <- HresSE(sample = HresSamples(scoreFileDirectory = occupancy.path,
                                  segmentFileDirectory = changepoint.path,

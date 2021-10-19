@@ -8,6 +8,7 @@
 #   fcp-rdata-file.RData
 #   orf-rdata-file.RData
 #   output-file.pdf
+# TODO REVISE TO USE Final form of change points
 
 set.seed(6272017)
 

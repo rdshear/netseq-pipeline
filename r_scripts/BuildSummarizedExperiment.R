@@ -26,11 +26,16 @@ bedgraph_to_granges <- function(pos, neg)
   sort(unlist(GRangesList(scores)))
 }
 
-# TODO Assumes there are no missing changepoint regions of interest
 gff3_to_granges <- function(fname) {
   x <- import(fname)
+  # Keep only the mcols needed
+  mcols(x) <- mcols(x)[,c("tx_name", "seq_index", "m", "v")]
+  # HACK Conflict with tidyverse because GRanges doesnt support '[[' etc
+  x <- as_tibble(x)
   x <- split(x, x$tx_name)
-  as(x[names(feature_ranges)], "SimpleList")
+  
+  # TODO Assumes there are no missing changepoint regions of interest
+  matrix(x[names(feature_ranges)], ncol = 1)
 }
 
 # TODO: Store segments as vector of widths
@@ -49,68 +54,22 @@ feature_ranges <- GRanges(as_tibble(features)[,c("seqnames", "start", "end", "st
 names(feature_ranges) <- names(features)
 
 sample_table <- tibble(sample_id = c("wt-1", "wt-2")) %>%
-    mutate(variant = map_chr(sample_id, 
+    mutate(variant = map_chr(sample_id,
                          function(u) str_split(u, "-")[[1]][1]),
     bedgraph_neg = str_c(dfile.path, sample_id, ".neg.bedgraph.gz"),
     bedgraph_pos = str_c(dfile.path, sample_id, ".pos.bedgraph.gz"),
     changepoints = str_c(dfile.path, sample_id, ".cp.", cpa_algorithm, ".gff3")) %>%
     column_to_rownames(var = "sample_id")
 
-# mutate(...
-# gr_post = map2(bedgraph_pos, bedgraph_neg, bedgraph_to_granges),
-# gr_cpa = map(changepoints, gff3_to_granges)
+x <- lapply(seq(nrow(sample_table)), function(i) {
+  u <- sample_table[i,]
+  x <- gff3_to_granges(u$changepoints)
+  r <- SummarizedExperiment(rowData = features, colData = u)
+  assay(r, "segments", withDimnames = FALSE) <- x
+  r
+  })
 
-u <- sample_table[1,]
-x <- gff3_to_granges(u$changepoints)
-r <- SummarizedExperiment(rowData = features, colData = u)
-assay(r, "changepoint", withDimnames = FALSE) <- matrix(x, ncol = 1)
-
-
-    # HACK Conflict with tidyverse because GRanges doesnt support '[[' etc
-
-
-q <- map(sample_table$changepoints, gff3_to_granges)
-
-
-x <- gff3_to_granges(u$changepoints)
-assay(exp, "segments") <- x
-
-z <- transmute(x, sample_id, variant, gr_cpa, gr_post)
-# nest the Granges within the gene
-z <- RaggedExperiment(colData = sample_table, rowData = features)
-
-# create data.frame of samples
-x <- config$samples
-u <- x[[1]]
-y <- lapply(x, function(u) data.frame(variant = u$variant, group = u$group, stringsAsFactors = FALSE))
-z <- Reduce(rbind, y, data.frame())
-z$sample <- names(y)
-rownames(z) <- z$sample
-
-# TODO: For test only
-z <- z[z$group == sample.group, ]
-
-g <- import(feature.filename)
-names(g) <- g$ID
-# TODO: For test only
-# g <- sample(g, 32)
- 
-e <- HresSE(sample = HresSamples(scoreFileDirectory = occupancy.path,
-                                 segmentFileDirectory = changepoint.path,
-                                 sampleNames = z$sample, 
-                                 scoreFilesPos = paste0(z$sample, ".pos.bedgraph.gz"), 
-                                 scoreFilesNeg = paste0(z$sample, ".neg.bedgraph.gz"), 
-                                 segmentFiles = paste0(z$sample, ".cp.CEZINB.gff3")),
-                    rowRanges = g)
-
-cd <- colData(e)
-cd$variant <- z$variant
-cd$group <- z$group
-colData(e) <- cd
-
-# TODO: THIS IS TEMPORARY UNTIL WE GET THE side-effects figured out
-e <- readOccupancy(e)
-e <- readSegments(e)
+e <- do.call(cbind, x)
 
 unroll <- function(m) sapply(m, identity)
 

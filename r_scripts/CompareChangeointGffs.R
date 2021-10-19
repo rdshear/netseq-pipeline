@@ -1,4 +1,6 @@
 # Comapre changepoint gffs
+
+# TODO Revisit at end to make table of thesis vs paper differences
 library(rtracklayer)
 a <- import("/n/groups/churchman/rds19/data/S004/se/WT-2_CEZINB.gff3.bgz")
 b <- import("~/Downloads/wt-2.cp.CEZINB.gff3")

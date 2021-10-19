@@ -11,12 +11,18 @@ library(plyranges)
 
 set.seed(20190413)
 
-
+print(Sys.time())
 dfile.path <- "/n/groups/churchman/rds19/data/S005/"
 outfile.path <- "/Users/robertshear/Documents/n/groups/churchman/rds19/data/S005/HresSE_screen.rds"
 feature.filename <- str_c(dfile.path, "genelist.gff")
 cpa_algorithm <- "CEZINB"
-max_genes <- 8
+max_genes <- 0
+
+unroll <- function(m) sapply(m, identity)
+
+reroll <- function(v, m)   structure(matrix(v, nrow = nrow(m), ncol = ncol(m)),
+                                     dimnames = dimnames(m))
+
 
 # apply function b to each element of matrix a, returning a matrix of shape a
 mat.sapply <- function(a, b) {
@@ -85,12 +91,10 @@ e <- do.call(cbind, lapply(seq(nrow(sample_table)), function(i) {
 
 assay(e, "k") <- mat.sapply(assay(e, "segments"), length)
 
-e1 <- e[8,1]
-segs <- assay(e1, "segments")[[1]]
-counts <- assay(e1, "scores")[[1]]
-s <- counts$score
-# TODO WRAP THESE to MATs
-
+new.assays <- mapply(function (segs, counts) {
+  #TODO debug only
+  traceit <<- segs[1]
+  s <- counts$score
   x <- try(fitdistrplus::fitdist(s, "nbinom"), silent = TRUE)
   if (inherits(x, "try-error")) {
     alpha <- NA;
@@ -112,28 +116,20 @@ s <- counts$score
     }
     cliff.magnitude <- mcols(x[2])$m / mcols(x[1])$m
   }
-#   
-#   list(cp = cp, mu = mean(s), var = var(s), 
-#        k = length(cp), 
-#        alpha = alpha, 
-#        alpha.se = alpha.se, 
-#        mu.se = mu.se,
-#        cliff.magnitude = cliff.magnitude
-#        )
-#   }, 
-#   cp = segments(e), s = occupancyRle(e))
-# 
-# for (assay.name in rownames(new.assays)) {
-#   assay(e, assay.name) <- reroll(new.assays[assay.name, ], e)
-# }
-# 
-# # fixup superflouous list for scalar assays
-# for (u in names(assays(e))) {
-#   if (class(assay(e, u)[[1]]) %in% c("numeric", "integer")) {
-#     x <- assay(e, u)
-#     assay(e, u) <- reroll(unlist(unroll(x)), x)
-#   }
-# }
+
+  list( mu = mean(s), var = var(s),
+       k = length(segs),
+       alpha = alpha,
+       alpha.se = alpha.se,
+       mu.se = mu.se,
+       cliff.magnitude = cliff.magnitude
+       )
+  },
+  segs = assay(e, "segments"), counts = assay(e, "scores"))
+
+for (assay.name in rownames(new.assays)) {
+  assay(e, assay.name) <- reroll(new.assays[assay.name, ], e)
+}
 
 saveRDS(e, file = outfile.path)
-#
+print(Sys.time())

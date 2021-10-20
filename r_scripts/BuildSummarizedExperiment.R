@@ -13,10 +13,12 @@ set.seed(20190413)
 
 print(Sys.time())
 dfile.path <- "/n/groups/churchman/rds19/data/S005/"
-outfile.path <- "/Users/robertshear/Documents/n/groups/churchman/rds19/data/S005/HresSE_screen.rds"
+outfile.path <- "/Users/robertshear/Documents/n/groups/churchman/rds19/data/S005/HresSE_1k_by_6.rds"
 feature.filename <- str_c(dfile.path, "genelist.gff")
 cpa_algorithm <- "CEZINB"
-max_genes <- 0
+sample_names <- c("wt-1", "wt-2", "wt-3", "wt-4", "spt4-1", "spt4-2")
+variants <- str_split(sample_names, "-", simplify = TRUE)[,1]
+max_genes <- 1024
 
 unroll <- function(m) sapply(m, identity)
 
@@ -72,9 +74,8 @@ names(features) <- features$ID
 feature_ranges <- GRanges(as_tibble(features)[,c("seqnames", "start", "end", "strand")])
 names(feature_ranges) <- names(features)
 
-sample_table <- tibble(sample_id = c("wt-1", "wt-2")) %>%
-    mutate(variant = map_chr(sample_id,
-                         function(u) str_split(u, "-")[[1]][1]),
+sample_table <- tibble(sample_id = sample_names) %>%
+    mutate(variant = variants,
     bedgraph_neg = str_c(dfile.path, sample_id, ".neg.bedgraph.gz"),
     bedgraph_pos = str_c(dfile.path, sample_id, ".pos.bedgraph.gz"),
     changepoints = str_c(dfile.path, sample_id, ".cp.", cpa_algorithm, ".gff3")) %>%
@@ -107,7 +108,8 @@ new.assays <- mapply(function (segs, counts) {
   }
 
   if (length(segs) < 2) {
-    cliff.magnitude <- NA
+    cliff.magnitude <- 0
+    fcp <- Inf
   } else {
     if (as.character(strand(segs[1])) == "-") {
       x <- rev(segs)
@@ -115,14 +117,17 @@ new.assays <- mapply(function (segs, counts) {
       x <- segs
     }
     cliff.magnitude <- mcols(x[2])$m / mcols(x[1])$m
+    fcp <- width(x[1])
   }
+  
 
   list( mu = mean(s), var = var(s),
        k = length(segs),
        alpha = alpha,
        alpha.se = alpha.se,
        mu.se = mu.se,
-       cliff.magnitude = cliff.magnitude
+       cliff.magnitude = cliff.magnitude,
+       fcp = fcp
        )
   },
   segs = assay(e, "segments"), counts = assay(e, "scores"))
@@ -130,6 +135,15 @@ new.assays <- mapply(function (segs, counts) {
 for (assay.name in rownames(new.assays)) {
   assay(e, assay.name) <- reroll(new.assays[assay.name, ], e)
 }
+
+# remove superfluous list for scalar assays
+for (u in names(assays(e))) {
+  if (class(assay(e, u)[[1]]) %in% c("numeric", "integer")) {
+    x <- assay(e, u)
+    assay(e, u) <- reroll(unlist(unroll(x)), x)
+  }
+}
+
 
 saveRDS(e, file = outfile.path)
 print(Sys.time())

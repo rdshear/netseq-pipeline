@@ -66,11 +66,13 @@ gff3_to_granges <- function(fname) {
 }
 
 features <- import(feature.filename)
-# TODO: TEST ONLY
+
 if (max_genes > 0) {
   features <- features[1:max_genes]
 }
+
 names(features) <- features$ID
+features <- features[,c("Name", "Ontology_term", "display", "dbxref", "curie", "gene", "Alias")]
 feature_ranges <- GRanges(as_tibble(features)[,c("seqnames", "start", "end", "strand")])
 names(feature_ranges) <- names(features)
 

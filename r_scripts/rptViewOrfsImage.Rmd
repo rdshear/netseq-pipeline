@@ -5,11 +5,11 @@ output:
   pdf_document: default
 params:
   display.window: 700
-  gff3: /n/groups/churchman/rds19/data/S002/features/WT-4_cliff.gff3
   minimum.fcp.location: 20
-  neg.bedgraph: /n/groups/churchman/rds19/data/S001/aligned/WT-4_neg_cdx.bedgraph.gz
-  pos.bedgraph: /n/groups/churchman/rds19/data/S001/aligned/WT-4_pos_cdx.bedgraph.gz
-  sample.name: WT-4
+  experiement_filename: "/n/groups/churchman/rds19/data/S005/HresSE_1024_by_6.rds"
+  sample.name: ["wt-1", "wt-2"]
+  lower.trim.parameter: 0.15 # lower 'trim' cutoff, mean occupancy / nt
+  running.mean.window: 5  # running mean width for smoothing img heat map
 ---
 ```{r setup, include=FALSE}
 
@@ -26,12 +26,18 @@ display.window <- params$display.window
 minimum.fcp.location <- params$minimum.fcp.location
 set.seed(6272017)
 
-library(fields, quietly = TRUE)
-library(GenomicRanges, quietly = TRUE)
-library(GenomicFeatures, quietly = TRUE)
-library(rtracklayer, quietly = TRUE)
-library(AnnotationDbi, quietly = TRUE)
-library(TxDb.Scerevisiae.UCSC.sacCer3.sgdGene, quietly = TRUE)
+suppressPackageStartupMessages({
+  library(GenomicRanges)
+  library(SummarizedExperiment)
+  library(tidyverse)
+})
+
+# TODO Move to common utility script
+# unroll an assay matrix in the order required by 
+assay_as_vector <- function(exp, assayname) c(t(assay(exp, assayname)))
+assay_as_list <- function(exp, assayname) lapply(c(t(assay(exp, assayname))), list)
+
+
 ```
 
 
@@ -39,45 +45,28 @@ This is an analysis of first change points (FCP) for sample **`r sample.name`**.
 
 
 ```{r}
-lower.trim.parameter <- 0.15 # lower 'trim' cutoff, mean occupancy / nt
-running.mean.window <- 5  # running mean width for smoothing img heat map
 
-tx <- TxDb.Scerevisiae.UCSC.sacCer3.sgdGene
-
-f.strand <- factor(c("+", "-", "*"))
-
-bedgraph2rle <- function(infile) {
-  p <- mcolAsRleList(import(infile), "score")
-  runValue(p) <- ifelse(is.na(runValue(p)), 0, runValue(p))
-  # right pad with zeros to chromosome length of reference genome
-  sl <- seqlengths(tx)
-  as(sapply(names(p), function(u) c(p[[u]], Rle(0, sl[u] - sum(runLength(p[u]))))), "RleList")
-}
-
-
-pn <- c(`+` = bedgraph2rle(params$pos.bedgraph), `-` = bedgraph2rle(params$neg.bedgraph))
-names(pn) <- strand(c("+","-"))
-
-# get the gff3 file that describes the first two segments of each ORF
-segments <- import(params$gff3)
-# TODO: Is there some way to do this as part of the import? (or the preceeding export)
-# coeerce mcols to numeric as appropriate
-names(segments) <- segments$Name
-segments$seq <- as.integer(segments$seq)
-segments$mean <- as.numeric(segments$mean)
-segments$variance <- as.numeric(segments$variance)
-segments$cliff <- as.numeric(segments$cliff)
-
-segments <- split(segments, segments$type)
-# trim expression levels. Use only [5%:95%]
-trim.range <- quantile(ecdf(segments$cds_ext$mean), c(0.05, 0.95))
-gene.names <- segments$cds_ext[segments$cds_ext$mean > trim.range[1] 
-                  & segments$cds_ext$mean < trim.range[2]]$Name
+e <- readRDS(params$experiement_filename)
+e <- e[,params$sample.name]
+assay(e, "mu") %>%
+  as_tibble(m, rownames = "gene") %>%
+  mutate(strand = as.character(strand(rowRanges(e)))) %>%
+  pivot_longer(!c(gene, strand), names_to = "sample", values_to = "mean")  %>%
+  mutate(k = assay_as_vector(e, "k"), 
+         cpt = assay_as_list(e, "cpt"),
+         segments = assay_as_vector(e, "segments"),
+         seg_max_var = map_dbl(segments, function(u) max(u$v))
+  ) %>%
+  group_by(sample) %>% 
+  mutate(quantile = cut(ecdf(mean)(mean), c(0,.25,.75,1), 
+                        labels = c("Q1", "Q23", "Q4"))) %>%
+  ungroup() -> x
 ```
 
 
-Number of ORF's in sample: `length(segments$cds_ext)`.
+Number of ORF's in sample: `nrow(e`.
 
+TBD
 Trimmed lower and upper 5%. Occupancy range of processed ORF's: 
 `trim.range`
 

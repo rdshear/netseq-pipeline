@@ -6,19 +6,19 @@ library(rtracklayer)
 library(SummarizedExperiment)
 library(fitdistrplus)
 library(tidyverse)
-library(tidygenomics)
 library(plyranges)
 
 set.seed(20190413)
 
 print(Sys.time())
 dfile.path <- "/n/groups/churchman/rds19/data/S005/"
-outfile.path <- "/Users/robertshear/Documents/n/groups/churchman/rds19/data/S005/HresSE_1k_by_6.rds"
 feature.filename <- str_c(dfile.path, "genelist.gff")
 cpa_algorithm <- "CEZINB"
 sample_names <- c("wt-1", "wt-2", "wt-3", "wt-4", "spt4-1", "spt4-2")
 variants <- str_split(sample_names, "-", simplify = TRUE)[,1]
 max_genes <- 1024
+outfile.path <- glue::glue("{dfile.path}HresSE_{max_genes}_by_{length(sample_names)}.rds")
+cat(sprintf("Output file name %s", outfile.path))
 
 unroll <- function(m) sapply(m, identity)
 
@@ -92,42 +92,39 @@ e <- do.call(cbind, lapply(seq(nrow(sample_table)), function(i) {
   r
   }))
 
-assay(e, "k") <- mat.sapply(assay(e, "segments"), length)
-
 new.assays <- mapply(function (segs, counts) {
-  #TODO debug only
-  traceit <<- segs[1]
   s <- counts$score
-  x <- try(fitdistrplus::fitdist(s, "nbinom"), silent = TRUE)
-  if (inherits(x, "try-error")) {
-    alpha <- NA;
-    alpha.se <- NA;
-    mu.se <- NA
-  } else {
-    alpha <- x$estimate["size"]
-    alpha.se <- x$sd["size"]
-    mu.se <- x$sd["mu"]
-  }
+  # TODO Only useful for diagnostics surrounding change point model assumptions
+  # x <- try(fitdistrplus::fitdist(s, "nbinom"), silent = TRUE)
+  # if (inherits(x, "try-error")) {
+  #   alpha <- NA;
+  #   alpha.se <- NA;
+  #   mu.se <- NA
+  # } else {
+  #   alpha <- x$estimate["size"]
+  #   alpha.se <- x$sd["size"]
+  #   mu.se <- x$sd["mu"]
+  # }
 
-  if (length(segs) < 2) {
-    cliff.magnitude <- 0
-    fcp <- Inf
+  if (as.character(strand(segs[1])) == "-") {
+    x <- rev(segs)
   } else {
-    if (as.character(strand(segs[1])) == "-") {
-      x <- rev(segs)
-    } else {
-      x <- segs
-    }
-    cliff.magnitude <- mcols(x[2])$m / mcols(x[1])$m
-    fcp <- width(x[1])
+    x <- segs
   }
-  
+  cpt <- cumsum(width(x))
+  fcp <- cpt[1]
+    if (length(x) < 2) {
+    cliff.magnitude <- 0
+  } else {
+    cliff.magnitude <- mcols(x[2])$m / mcols(x[1])$m
+  }
 
   list( mu = mean(s), var = var(s),
        k = length(segs),
        alpha = alpha,
-       alpha.se = alpha.se,
-       mu.se = mu.se,
+       cpt = IntegerList(cpt),
+       # alpha.se = alpha.se,
+       # mu.se = mu.se,
        cliff.magnitude = cliff.magnitude,
        fcp = fcp
        )
@@ -140,7 +137,7 @@ for (assay.name in rownames(new.assays)) {
 
 # remove superfluous list for scalar assays
 for (u in names(assays(e))) {
-  if (class(assay(e, u)[[1]]) %in% c("numeric", "integer")) {
+  if (class(assay(e, u)[[1]]) %in% c("numeric", "integer", "CompressedIntegerList")) {
     x <- assay(e, u)
     assay(e, u) <- reroll(unlist(unroll(x)), x)
   }

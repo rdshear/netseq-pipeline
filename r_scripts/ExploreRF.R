@@ -114,7 +114,7 @@ cp <- as_tibble(cp)
 
 h2o.init(nthreads = -1, max_mem_size = "8G", port = 54321)  
 
-  # variable names to ignore
+# variable names to ignore
 v.ignore <- c("seqnames", "start", "end", "width", "strand", "tx_name", "seq_index", "m", "v", "is_cp", "dna", "nuc_id", "gene", "acc", "gene_pos")
 x <- setdiff(colnames(cp), v.ignore)
 y <- "is_cp"
@@ -145,7 +145,7 @@ timestamp(sprintf("fit auc = %f,  gini Coef = %f", h2o.auc(rf_fit), h2o.giniCoef
   
 rf_perf <- h2o.performance(model = rf_fit, newdata = test)
   
-  # Print model performance
+# Print model performance
 timestamp(sprintf("test auc = %f,  gini Coef = %f", h2o.auc(rf_perf), h2o.giniCoef(rf_perf)))    
   
 h2o.shutdown()

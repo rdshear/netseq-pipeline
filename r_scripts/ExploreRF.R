@@ -16,15 +16,16 @@ suppressPackageStartupMessages({
 rm(list = ls())
 
 default_options <- list(
-  input_file = "/n/groups/churchman/rds19/data/S005/HresSE_1024_by_6.rds",
+  input_file = "/n/groups/churchman/rds19/data/S005/HresSE_0_by_6.rds",
   output_dir = "/n/groups/churchman/rds19/data/S005/h2o/",
   n_genes = 0,
   group = "tmp", # This is the directory under which the results are stored.
-  sample = "wt-1",
+  sample = c("wt-1"),
   inner_window = "8",
   outer_window = "16",
   seed = 20190722,
-  narrowest_segment = 128
+  narrowest_segment = 128, # TODO: Implement or drop
+  null_case_method = "permute" # freq for cp location ~ observed cp frequence, permute for permuting modification levels within nucleosome postion
 )
 
 if (exists("command_line")) {
@@ -76,6 +77,24 @@ colnames(q) <- qnames
 nuc_centers <- GRanges(seqnames = seqnames(si)[q$chr], ranges = IRanges(start = q$center, width = 1), seqinfo = si)
 mcols(nuc_centers) <- q[, c(-2,-3)]
 
+# the gene information in this file appears to be unreliable. We will construct our own nucleosome posotion information
+#### WIP #####
+r <- rowRanges(e)
+x <- findOverlaps(r, nuc_centers) %>%
+  as_tibble() %>%
+  mutate(center = start(nuc_centers[subjectHits]), 
+         strand = as.character(strand(r[queryHits]))) %>%
+  mutate(sortorder = if_else(strand == "-", - center, center)) %>%
+  group_by(queryHits) %>%
+  arrange(sortorder, .by_group = TRUE) %>%
+  mutate(new_gene_pos = row_number()) %>%
+  ungroup()
+
+
+nuc_centers <- nuc_centers[x$subjectHits]
+nuc_centers$new_gene_pos <- x$new_gene_pos
+
+
 # Get all the changepoints.
 # Drop the first segment and then pull the start position of the rest of them 
 cp <- unlist(GRangesList(unlist((assay(e, "segments")))))
@@ -83,25 +102,41 @@ cp <- cp[cp$seq_index != 1]
 cp <- resize(cp, fix = "start", width = 1)
 cp$is_cp <- 1
 
-# create null cases by selecting a random location with the gene from a distribution that approximates the observed change points
-all_cpts <- unlist(lapply(assay(e,"cpt"), unlist))
+switch (params$null_case_method,
+  # create null cases by selecting a random location with the gene from a distribution that approximates the observed change points
+  "freq" = {
+    all_cpts <- unlist(lapply(assay(e,"cpt"), unlist))
+  
+    random_cp <- Vectorize(function(w) trunc(quantile(all_cpts[all_cpts < w], runif(1))), vectorize.args = "w")
+    cp_null <- rowRanges(e)[cp$tx_name]
+    cp_null <- GRanges(seqnames = seqnames(cp_null),
+                       ranges = IRanges(start(cp_null) + random_cp(width(cp_null)), width = 1),
+                       strand = strand(cp_null),
+                       tx_name = cp_null$tx_name)
+    cp_null$is_cp <- 0
+    nuc_centers_null <- nuc_centers
+  },
 
-random_cp <- Vectorize(function(w) trunc(quantile(all_cpts[all_cpts < w], runif(1))), vectorize.args = "w")
-cp_null <- rowRanges(e)[cp$tx_name]
-cp_null <- GRanges(seqnames = seqnames(cp_null), 
-                   ranges = IRanges(start(cp_null) + random_cp(width(cp_null)), width = 1), 
-                   strand = strand(cp_null),
-                   tx_name = cp_null$tx_name)
-cp_null$is_cp <- 0
-cp <- c(cp, cp_null)
-cp$is_cp <- as.factor(cp$is_cp)
+# create the null case by permuting the nuc_centers values, but only within nucleosome position (to avoid distsnce from TSS bias)
+  "permute" = {
+    cp_null <- cp
+    cp_null$is_cp = 0
+    # TODO Tier by position
+    nuc_centers_null <- nuc_centers
+    mcols(nuc_centers_null) <- mcols(nuc_centers)[sample(length(nuc_centers), length(nuc_centers)),]
 
+    },
+#
+  stop("null case menthod not found")
+)
 
-
+cp <- c(join_nearest(cp, nuc_centers, distance = TRUE),
+        join_nearest(cp_null, nuc_centers_null, distance = TRUE))
 cp$dna <- Views(BSgenome.Scerevisiae.UCSC.sacCer3::Scerevisiae, resize(cp, width = as.integer(params$outer_window)))
 mcols(cp) <- cbind(mcols(cp), alphabetFrequency(cp$dna, as.prob = TRUE)[,(c("A","T"))])
-cp <- join_nearest(cp, nuc_centers, distance = TRUE)
+cp$is_cp <- as.factor(cp$is_cp)
 cp <- as_tibble(cp)
+
 
 ############################################################
 # Run the models
@@ -143,6 +178,6 @@ rf_perf <- h2o.performance(model = rf_fit, newdata = test)
 # Print model performance
 timestamp(sprintf("test auc = %f,  gini Coef = %f", h2o.auc(rf_perf), h2o.giniCoef(rf_perf)))    
   
-h2o.shutdown()
+h2o.shutdown(prompt = TRUE)
 sessionInfo()
 

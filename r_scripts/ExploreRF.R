@@ -21,8 +21,6 @@ default_options <- list(
   n_genes = 0,
   group = "tmp", # This is the directory under which the results are stored.
   sample = "wt-1",
-  feature_mode = "C",
-  model_mode = "Kmers/2",
   inner_window = "8",
   outer_window = "16",
   seed = 20190722,
@@ -49,11 +47,7 @@ e <- readRDS(params$input_file)
 
 cat(sprintf("Expriement file = '%s'\nN genes read = %d\n", params$input_file, nrow(e)))
 
-# TODO: unroll and allow multiple ... or go ro consensus cp's ?
 e <- e[, params$sample]
-if (ncol(x) != 1) {
-  stop("only one sample allowed")
-}
 
 # get rid of genes with no changepoints
 e <- e[as.vector(assay(e, "k") > 1),]
@@ -63,8 +57,6 @@ if (params$n_genes > 0 && params$n_genes < nrow(e)) {
   e <- e[sample(nrow(e), params$n_genes)]
 }
 cat(sprintf("genes after trimming by --n_genes parameter = %d\n", nrow(e)))
-
-
 
 # TODO: MOVE THIS TO POINT OF GENERATION
 si <- seqinfo(TxDb.Scerevisiae.UCSC.sacCer3.sgdGene::TxDb.Scerevisiae.UCSC.sacCer3.sgdGene)
@@ -91,10 +83,13 @@ cp <- cp[cp$seq_index != 1]
 cp <- resize(cp, fix = "start", width = 1)
 cp$is_cp <- 1
 
-# create null cases by selecting a random location with the gene
+# create null cases by selecting a random location with the gene from a distribution that approximates the observed change points
+all_cpts <- unlist(lapply(assay(e,"cpt"), unlist))
+
+random_cp <- Vectorize(function(w) trunc(quantile(all_cpts[all_cpts < w], runif(1))), vectorize.args = "w")
 cp_null <- rowRanges(e)[cp$tx_name]
 cp_null <- GRanges(seqnames = seqnames(cp_null), 
-                   ranges = IRanges(start(cp_null) + sample(width(cp_null), 1), width = 1), 
+                   ranges = IRanges(start(cp_null) + random_cp(width(cp_null)), width = 1), 
                    strand = strand(cp_null),
                    tx_name = cp_null$tx_name)
 cp_null$is_cp <- 0

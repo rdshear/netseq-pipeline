@@ -16,7 +16,7 @@ feature.filename <- str_c(dfile.path, "genelist.gff")
 cpa_algorithm <- "CEZINB"
 sample_names <- c("wt-1", "wt-2", "wt-3", "wt-4", "spt4-1", "spt4-2")
 variants <- str_split(sample_names, "-", simplify = TRUE)[,1]
-max_genes <- 1024
+max_genes <- 0
 outfile.path <- glue::glue("{dfile.path}HresSE_{max_genes}_by_{length(sample_names)}.rds")
 cat(sprintf("Output file name %s", outfile.path))
 

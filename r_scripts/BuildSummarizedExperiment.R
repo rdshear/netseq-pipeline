@@ -74,6 +74,10 @@ if (max_genes > 0) {
 names(features) <- features$ID
 features <- features[,c("Name", "Ontology_term", "display", "dbxref", "curie", "gene", "Alias")]
 feature_ranges <- GRanges(as_tibble(features)[,c("seqnames", "start", "end", "strand")])
+# TODO: MOVE THIS TO POINT OF GENERATION
+si <- seqinfo(TxDb.Scerevisiae.UCSC.sacCer3.sgdGene::TxDb.Scerevisiae.UCSC.sacCer3.sgdGene)
+seqinfo(feature_ranges) <- si
+
 names(feature_ranges) <- names(features)
 
 sample_table <- tibble(sample_id = sample_names) %>%

@@ -16,16 +16,16 @@ suppressPackageStartupMessages({
 rm(list = ls())
 
 default_options <- list(
+  model_name = "cpa_permute",
   input_file = "/n/groups/churchman/rds19/data/S005/HresSE_0_by_6.rds",
   output_dir = "/n/groups/churchman/rds19/data/S005/h2o/",
   n_genes = 0,
   group = "tmp", # This is the directory under which the results are stored.
-  sample = c("wt-1"),
+  sample = c("wt-1", "wt-2", "wt-3", "wt-4"),
   inner_window = "8",
   outer_window = "16",
   seed = 20190722,
-  narrowest_segment = 128, # TODO: Implement or drop
-  null_case_method = "permute" # freq for cp location ~ observed cp frequence, permute for permuting modification levels within nucleosome postion
+  null_case_method = "permute" # freq for cp location ~ observed cp offset from TSS, permute for permuting modification levels within nucleosome postion
 )
 
 if (exists("command_line")) {
@@ -49,9 +49,6 @@ e <- readRDS(params$input_file)
 cat(sprintf("Expriement file = '%s'\nN genes read = %d\n", params$input_file, nrow(e)))
 
 e <- e[, params$sample]
-
-# get rid of genes with no changepoints
-e <- e[as.vector(assay(e, "k") > 1),]
 
 # if params$n_genes == 0, then take all the genes, otherwise sample is of size params$n_genes
 if (params$n_genes > 0 && params$n_genes < nrow(e)) {
@@ -84,20 +81,28 @@ x <- findOverlaps(r, nuc_centers) %>%
   as_tibble() %>%
   mutate(center = start(nuc_centers[subjectHits]), 
          strand = as.character(strand(r[queryHits]))) %>%
-  mutate(sortorder = if_else(strand == "-", - center, center)) %>%
+  mutate(sortorder = if_else(strand == "-", -center, center)) %>%
   group_by(queryHits) %>%
   arrange(sortorder, .by_group = TRUE) %>%
-  mutate(new_gene_pos = row_number()) %>%
+  mutate(gene_pos = row_number()) %>%
   ungroup()
 
 
 nuc_centers <- nuc_centers[x$subjectHits]
-nuc_centers$new_gene_pos <- x$new_gene_pos
+nuc_centers$gene_pos <- x$gene_pos
 
 
-# Get all the changepoints.
+# Get all the changepoints ... unroll the SE matrix
+# omit genes without changepoints and add sample name and variant to the list
+cp <- do.call(c, lapply(seq(ncol(e)), function (u) {
+        elcl <- e[,u]
+        x <- unlist(GRangesList(unlist(assay(elcl, "segments"))[as.vector(assay(elcl, "k") > 1)]))
+        x$sample <- colnames(elcl)
+        x$variant <- colData(elcl)$variant
+        x
+}))
+
 # Drop the first segment and then pull the start position of the rest of them 
-cp <- unlist(GRangesList(unlist((assay(e, "segments")))))
 cp <- cp[cp$seq_index != 1]
 cp <- resize(cp, fix = "start", width = 1)
 cp$is_cp <- 1
@@ -111,8 +116,8 @@ switch (params$null_case_method,
     cp_null <- rowRanges(e)[cp$tx_name]
     cp_null <- GRanges(seqnames = seqnames(cp_null),
                        ranges = IRanges(start(cp_null) + random_cp(width(cp_null)), width = 1),
-                       strand = strand(cp_null),
-                       tx_name = cp_null$tx_name)
+                       strand = strand(cp_null))
+    mcols(cp_null) <- mcols(cp)
     cp_null$is_cp <- 0
     nuc_centers_null <- nuc_centers
   },
@@ -130,13 +135,14 @@ switch (params$null_case_method,
   stop("null case menthod not found")
 )
 
-cp <- c(join_nearest(cp, nuc_centers, distance = TRUE),
-        join_nearest(cp_null, nuc_centers_null, distance = TRUE))
+cp <- c(join_nearest_downstream(cp, nuc_centers, distance = TRUE),
+        join_nearest_downstream(cp_null, nuc_centers_null, distance = TRUE))
 cp$dna <- Views(BSgenome.Scerevisiae.UCSC.sacCer3::Scerevisiae, resize(cp, width = as.integer(params$outer_window)))
 mcols(cp) <- cbind(mcols(cp), alphabetFrequency(cp$dna, as.prob = TRUE)[,(c("A","T"))])
 cp$is_cp <- as.factor(cp$is_cp)
-cp <- as_tibble(cp)
 
+cp$dna <- as.character(cp$dna)
+cp <- as_tibble(cp)
 
 ############################################################
 # Run the models
@@ -145,18 +151,20 @@ cp <- as_tibble(cp)
 h2o.init(nthreads = -1, max_mem_size = "8G", port = 54321)  
 
 # variable names to ignore
-v.ignore <- c("seqnames", "start", "end", "width", "strand", "tx_name", "seq_index", "m", "v", "is_cp", "dna", "nuc_id", "gene", "acc", "gene_pos")
+v.ignore <- c("seqnames", "start", "end", "width", "strand", "tx_name", 
+              "seq_index", "m", "v", "is_cp", "dna", "nuc_id", "gene", 
+              "acc", "gene_pos")
 x <- setdiff(colnames(cp), v.ignore)
 y <- "is_cp"
 
-# Don't pass through the non-atomic columns seqname, strand, dna
-# h2o doesn't like it
-data <- as.h2o(cp[, - which(colnames(cp) %in% c("seqnames", "strand", "dna"))])
+data <- as.h2o(cp, destination_frame = params$model_name)
   
 # Partition the data into training, validation and test sets
 splits <- h2o.splitFrame(data = data, 
-                           ratios = c(0.7, 0.15),  #partition data into 70%, 15%, 15% chunks
-                           seed = 20190725)  #setting a seed will guarantee reproducibility
+             ratios = c(0.7, 0.15),  #partition data into 70%, 15%, 15% chunks
+             destination_frames = 
+               paste0(params$model_name, "_",  c("fit", "validate", "test")),
+             seed = 20190725)  #setting a seed will guarantee reproducibility
 train <- splits[[1]]
 validation <- splits[[2]]
 test <- splits[[3]]
@@ -178,6 +186,9 @@ rf_perf <- h2o.performance(model = rf_fit, newdata = test)
 # Print model performance
 timestamp(sprintf("test auc = %f,  gini Coef = %f", h2o.auc(rf_perf), h2o.giniCoef(rf_perf)))    
   
-h2o.shutdown(prompt = TRUE)
+if (!interactive()) {
+  h2o.shutdown(prompt = TRUE)
+}
+
 sessionInfo()
 

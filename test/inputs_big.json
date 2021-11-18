@@ -1,6 +1,5 @@
 {
   "NETseq.threads": 3,
-  "NETseq.MultimapNmax": 99,
   "NETseq.refFasta": "/n/groups/churchman/ucsc_golden_path/sacCer3.fa", 
   "NETseq.inputFastQ": "/n/groups/churchman/GSE159603/wt-4.fastq.gz"
 }

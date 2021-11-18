@@ -9,16 +9,33 @@ workflow NETseq {
     # TODO quality filter
     # TODO more parameter metadata
     parameter_meta {
-        inputFastQ: "Unprocessed reads"
+        # STAR index input
+        refFasta: "Genome Reference File, FASTA format"
+        # STAR alignment parameters
+        inputFastQ: "Illumina Read file, FASTQ format"
+        sampleName: "Sample name. If not specified, taken as base name of fastq input file"
+        outSAMmultNmax: "The number of alignments returned for each read. If 1, then no multimmappers are returned."
+        OutFilterMultiMax: "If a read has multimappers in excess of this paramter, then the read is disreagarded. Defaults"
+
+        #Outputs
+        output_bam: "TODO"
+        dedup_bam: "TODO"
+        bedgraph_pos: "TODO"
+        bedgraph_neg: "TODO"
+
+        # Environment
+        netseq_docker: "TODO"
+        threads: "Number of CPUs to request for task runtimes"
+        memory: "TODO"
+        preemptible: "TODO"
     }
     input {
 
-        # general environment
-        Int threads = 8
 
         # Genome source for STAR
         File refFasta
-        Int MultimapNmax = 1
+        Int outSAMmultNmax = 1     # Default to outputting primary alignment only. (Multimap count still available at )
+        Int OutFilterMultiMax = 10 # Default to dropping reads with more than 10 alignments
 
         # Unprocessed reads
         File inputFastQ
@@ -29,6 +46,7 @@ workflow NETseq {
         String netseq_docker = 'rdshear/netseq'
         Int preemptible = 1
         String memory = "8G"
+        Int threads = 8
     }
 
 
@@ -38,7 +56,8 @@ workflow NETseq {
             Infile = inputFastQ,
             refFasta = refFasta,
             sampleName = sampleName,
-            MultimapNmax = MultimapNmax,
+            outSAMmultNmax = outSAMmultNmax,
+            OutFilterMultiMax = OutFilterMultiMax,
             threads = threads,
             docker = netseq_docker,
             memory = memory,
@@ -77,7 +96,8 @@ task StarAlign {
         File Infile
         File refFasta
         String sampleName
-        Int MultimapNmax
+        Int outSAMmultNmax
+        Int OutFilterMultiMax
 
         Int threads = 8
         String docker
@@ -118,7 +138,8 @@ task StarAlign {
             --outStd SAM \
             --outFileNamePrefix ~{sampleName}. \
             --outReadsUnmapped None \
-            --outFilterMultimapNmax ~{MultimapNmax} \
+            --outSAMmultNmax ~{outSAMmultNmax} \
+            --outFilterMultimapNmax ~{OutFilterMultiMax} \
             --clip3pAdapterSeq ATCTCGTATGCCGTCTTCTGCTTG \
             --clip3pNbases 0 \
             --clip5pNbases 6  \

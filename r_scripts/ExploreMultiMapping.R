@@ -3,11 +3,11 @@ library(changepoint.np)
 library(SummarizedExperiment)
 library(GenomicRanges)
 library(GenomicAlignments)
+library(magrittr)
 library(tidyverse)
 library(glue)
 
-e <-
-  readRDS("/n/groups/churchman/rds19/data/S005/HresSE_1024_by_6.rds")
+e <- readRDS("/n/groups/churchman/rds19/data/S005/HresSE_1024_by_6.rds")
 
 variant <- "wt"
 e <- e[, which(colData(e)$variant == variant)]
@@ -24,30 +24,26 @@ density.to <- 5
 # select moderately dense genes
 # for simiplicty the samples will all have to be within the range
 
-h <-
-  e[as.vector(rowMin(mu) > density.from & rowMax(mu) < density.to),]
+# could use tidyExperiment if they fix the invisible cast
+flatten_matrix <- function(experiment, assay_name, column_name = assay_name) {
+  assay(experiment, assay_name) %>%
+    as_tibble(rownames = "gene") %>%
+    pivot_longer(cols = !gene, names_to = "sample", values_to = column_name)
+}
 
-scores <- mapply(function(u, strand, cpt) {
-  data <- u$score
-  if (strand == "-") {
-    data <- rev(data)
-  }
-  z <- Rle(data)
-  y <- runLength(z)[runValue(z) == 0]
-  # cp = change points i.e. \tau_i, zrl is sorted vector of length of zero-runs
-  list(score = data,
-       cp = cpt[[1]],
-       zrl = sort(y, decreasing = TRUE))
-},
-assay(h, "scores"),
-as.character(strand(rowRanges(h))),
-assay(h, "cpt"),
-SIMPLIFY = FALSE)
+h <- e[as.vector(rowMin(mu) > density.from & rowMax(mu) < density.to),]
 
-# force scores to conform to h dimensions
-dim(scores) <- dim(h)
-dimnames(scores) <- dimnames(h)
-
+data <- tibble(gene = rownames(h), strand = as.character(strand(rowRanges(h)))) %>%
+  inner_join(flatten_matrix(h, "scores","score_gpos")) %>%
+  inner_join(flatten_matrix(h, "cpt")) %>%
+  mutate(scores = map(score_gpos, ~as.integer(.$score)), 
+         scores = map_if(scores, strand == "-", rev),
+         cpt = map(cpt, function(u) u[[1]]),
+         rle = map(scores, Rle),
+         zrl = map(rle, function(z) 
+           sort(unique(runLength(z)[runValue(z) == 0]), decreasing = TRUE)),
+         max_zrl = map_int(zrl, ~.[1]))
+head(data)
 
 # look at very long zero-lits
 top_zrl <- sapply(scores, function(u)
@@ -91,25 +87,26 @@ na_hamming <- function(a, b) mean(!xor(is.na(a), is.na(b)))
 minimum_window <- 4
 
 final_answer <- lapply(seq(nrow(scores)), function(i) {
-gene_name <- rownames(scores)[i]
-candidate_widths <- sort(unique(unlist(map(scores[i,], function(u) u$zrl))))
-candidate_widths <- candidate_widths[candidate_widths > minimum_window]
-result <- sapply(candidate_widths, function(trial_width) {
-  x_na <- apply(sapply(scores[i, ], function(u) u$score), 2, zero_run_mask, min_width = trial_width)
-  m <- matrix(as.numeric(NA), nrow = m_size, ncol = m_size)
-  m_idx <- which(upper.tri(m, diag = FALSE), arr.ind=TRUE) 
-  for (md in 1:nrow(m_idx)) {
-    row <- m_idx[md, 1]
-    col <- m_idx[md, 2]
-    m[row ,col] <- na_hamming(x_na[, row], x_na[, col])
-  }
-  answer <- list(gene = gene_name, width = trial_width, 
-                 score = log10(1 - mean(m, na.rm = TRUE)))
-  # print(trial_width)
-  # print(m)
-  # print(log10(1 - mean(m, na.rm = TRUE)))
-  answer
-})
+  gene_name <- rownames(scores)[i]
+  candidate_widths <- sort(unique(unlist(map(scores[i,], function(u) u$zrl))))
+  candidate_widths <- candidate_widths[candidate_widths > minimum_window]
+  result <- sapply(candidate_widths, function(trial_width) {
+    x_na <- apply(sapply(scores[i, ], function(u) u$score), 2, zero_run_mask, min_width = trial_width)
+    m_size <- ncol(x_na)
+    m <- matrix(NA, ncol = m_size, nrow = m_size)
+    m_idx <- which(upper.tri(m, diag = FALSE), arr.ind=TRUE) 
+    for (md in 1:nrow(m_idx)) {
+      row <- m_idx[md, 1]
+      col <- m_idx[md, 2]
+      m[row ,col] <- na_hamming(x_na[, row], x_na[, col])
+    }
+    answer <- tibble_row(gene = gene_name, width = trial_width, 
+                   score = log10(1 - mean(m, na.rm = TRUE)))
+    # print(trial_width)
+    # print(m)
+    # print(log10(1 - mean(m, na.rm = TRUE)))
+    answer
+  })
 })
 # TODO: FORCE TO DATA FRAME
 # cpt_np <- cpt.np(data, minseglen = 16)

@@ -1,8 +1,10 @@
 # ExploreMultiMapping.R
 library(changepoint.np)
+library(fitdistrplus)
 library(SummarizedExperiment)
 library(GenomicRanges)
 library(GenomicAlignments)
+library(tidygenomics)
 library(magrittr)
 library(tidyverse)
 library(glue)
@@ -17,6 +19,36 @@ print(
   )
 )
 
+zero_run_mask <- function(s, min_width) {
+  x <- Rle(s)
+  runValue(x)[which(runLength(x) >= min_width & runValue(x) == 0L)] <- as.integer(NA)
+  x <- !is.na(x)
+  as(x, "vector")
+}
+
+na_hamming <- function(a, b) mean(!xor(a, b))
+
+distance_matrix <-  function(samples, trial_width) {
+  x_na <- samples %>% mutate(mask = map(.$scores, zero_run_mask, trial_width))
+  m_size <- nrow(x_na)
+  m <- matrix(NA, ncol = m_size, nrow = m_size)
+  m_idx <- which(upper.tri(m, diag = FALSE), arr.ind=TRUE) 
+  for (md in 1:nrow(m_idx)) {
+    row <- m_idx[md, 1]
+    col <- m_idx[md, 2]
+    browser()
+    m[row ,col] <- na_hamming(x_na$mask[row][[1]], x_na$mask[col][[1]])
+  }
+ answer <- tibble_row(gene = gene_name, width = trial_width,
+                      score = log10(1 - mean(m, na.rm = TRUE)))
+  print(trial_width)
+  print(m)
+  print(log10(1 - mean(m, na.rm = TRUE)))
+  answer
+}
+
+minimum_window <- 5
+
 mu <- assay(e, "mu")
 
 density.from <- 1
@@ -27,24 +59,48 @@ density.to <- 5
 # could use tidyExperiment if they fix the invisible cast
 flatten_matrix <- function(experiment, assay_name, column_name = assay_name) {
   assay(experiment, assay_name) %>%
-    as_tibble(rownames = "gene") %>%
-    pivot_longer(cols = !gene, names_to = "sample", values_to = column_name)
+    as_tibble(rownames = "Name") %>%
+    pivot_longer(cols = !Name, names_to = "sample", values_to = column_name)
 }
 
 h <- e[as.vector(rowMin(mu) > density.from & rowMax(mu) < density.to),]
+# TODO DEBUG ONLY
+h <- h[1:8,]
 
-data <- tibble(gene = rownames(h), strand = as.character(strand(rowRanges(h)))) %>%
+data <- as_tibble(rowRanges(h))
+range_headers <- colnames(data)
+data %<>%
   inner_join(flatten_matrix(h, "scores","score_gpos")) %>%
   inner_join(flatten_matrix(h, "cpt")) %>%
-  mutate(scores = map(score_gpos, ~as.integer(.$score)), 
+  mutate(scores = map(score_gpos, ~as.integer(.$score)),
          scores = map_if(scores, strand == "-", rev),
          cpt = map(cpt, function(u) u[[1]]),
          rle = map(scores, Rle),
          zrl = map(rle, function(z) 
-           sort(unique(runLength(z)[runValue(z) == 0]), decreasing = TRUE)),
-         max_zrl = map_int(zrl, ~.[1]))
-head(data)
+           sort(unique(runLength(z)[runValue(z) == 0]))),
+         max_zrl = map_int(zrl, ~.[1]),
+         zero_run_ratio = max_zrl / width) %>%
+  nest(samples = !c(range_headers)) %>%
+  hoist(samples, mask_widths = "zrl", .remove = FALSE) %>% # TODO: .remove for testing only
+  # Select candidate mask_widths
+  mutate(mask_widths = map(mask_widths, 
+                           function(u) {
+                             x <- unique(unlist(u))
+                             sort(x[x >= minimum_window])
+                           }))
 
+
+
+final_answer <- lapply(seq(nrow(scores)), function(i) {
+  gene_name <- rownames(scores)[i]
+  candidate_widths <- sort(unique(unlist(map(scores[i,], function(u) u$zrl))))
+  candidate_widths <- candidate_widths[candidate_widths > minimum_window]
+})
+
+
+
+
+hist(log10(x$z_density))
 # look at very long zero-lits
 top_zrl <- sapply(scores, function(u)
   u$zrl[1])
@@ -75,39 +131,6 @@ for (i in very_wide_zero_runs) {
   print(p)
 }
 
-# Score similarity between samples vary by minimum width
-
-zero_run_mask <- function(s, min_width) {
-  x <- Rle(s)
-  runValue(x)[which(runLength(x) >= min_width)] <- as.numeric(NA)
-  as(x, "vector")
-}
-
-na_hamming <- function(a, b) mean(!xor(is.na(a), is.na(b)))
-minimum_window <- 4
-
-final_answer <- lapply(seq(nrow(scores)), function(i) {
-  gene_name <- rownames(scores)[i]
-  candidate_widths <- sort(unique(unlist(map(scores[i,], function(u) u$zrl))))
-  candidate_widths <- candidate_widths[candidate_widths > minimum_window]
-  result <- sapply(candidate_widths, function(trial_width) {
-    x_na <- apply(sapply(scores[i, ], function(u) u$score), 2, zero_run_mask, min_width = trial_width)
-    m_size <- ncol(x_na)
-    m <- matrix(NA, ncol = m_size, nrow = m_size)
-    m_idx <- which(upper.tri(m, diag = FALSE), arr.ind=TRUE) 
-    for (md in 1:nrow(m_idx)) {
-      row <- m_idx[md, 1]
-      col <- m_idx[md, 2]
-      m[row ,col] <- na_hamming(x_na[, row], x_na[, col])
-    }
-    answer <- tibble_row(gene = gene_name, width = trial_width, 
-                   score = log10(1 - mean(m, na.rm = TRUE)))
-    # print(trial_width)
-    # print(m)
-    # print(log10(1 - mean(m, na.rm = TRUE)))
-    answer
-  })
-})
 # TODO: FORCE TO DATA FRAME
 # cpt_np <- cpt.np(data, minseglen = 16)
 # plot(cpt_np)

@@ -99,16 +99,16 @@ e <- do.call(cbind, lapply(seq(nrow(sample_table)), function(i) {
 new.assays <- mapply(function (segs, counts) {
   s <- counts$score
   # TODO Only useful for diagnostics surrounding change point model assumptions
-  # x <- try(fitdistrplus::fitdist(s, "nbinom"), silent = TRUE)
-  # if (inherits(x, "try-error")) {
-  #   alpha <- NA;
-  #   alpha.se <- NA;
-  #   mu.se <- NA
-  # } else {
-  #   alpha <- x$estimate["size"]
-  #   alpha.se <- x$sd["size"]
-  #   mu.se <- x$sd["mu"]
-  # }
+  x <- try(fitdistrplus::fitdist(s, "nbinom"), silent = TRUE)
+  if (inherits(x, "try-error")) {
+    alpha <- NA;
+    alpha.se <- NA;
+    mu.se <- NA
+  } else {
+    alpha <- x$estimate["size"]
+    alpha.se <- x$sd["size"]
+    mu.se <- x$sd["mu"]
+  }
 
   if (as.character(strand(segs[1])) == "-") {
     x <- rev(segs)

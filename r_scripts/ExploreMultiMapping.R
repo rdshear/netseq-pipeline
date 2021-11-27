@@ -1,15 +1,14 @@
 # ExploreMultiMapping.R
-library(changepoint.np)
 library(fitdistrplus)
 library(SummarizedExperiment)
 library(GenomicRanges)
 library(GenomicAlignments)
-library(tidygenomics)
 library(magrittr)
+library(tidymodels)
 library(tidyverse)
 library(glue)
 
-e <- readRDS("/n/groups/churchman/rds19/data/S005/HresSE_1024_by_6.rds")
+e <- readRDS("/n/groups/churchman/rds19/data/S005/HresSE_0_by_5.rds")
 
 variant <- "wt"
 e <- e[, which(colData(e)$variant == variant)]
@@ -19,36 +18,33 @@ print(
   )
 )
 
-zero_run_mask <- function(s, min_width) {
-  x <- Rle(s)
-  runValue(x)[which(runLength(x) >= min_width & runValue(x) == 0L)] <- as.integer(NA)
-  x <- !is.na(x)
-  as(x, "vector")
+zero_run_mask <- function(v, min_width) {
+  gr <- range(v)
+  w<- gaps(as(v[v$score != 0], "GRanges"), 
+         start = start(gr), end = end(gr))
+  w <- GenomicRanges::intersect(gr, w)
+  w[width(w) >= min_width]
+}
+
+na_jaccard <- function(a, b) {
+  sum(width(GenomicRanges::intersect(a,b))) / sum(width(GenomicRanges::union(a,b)))
 }
 
 na_hamming <- function(a, b) mean(!xor(a, b))
 
-distance_matrix <-  function(samples, trial_width) {
-  x_na <- samples %>% mutate(mask = map(.$scores, zero_run_mask, trial_width))
-  m_size <- nrow(x_na)
-  m <- matrix(NA, ncol = m_size, nrow = m_size)
-  m_idx <- which(upper.tri(m, diag = FALSE), arr.ind=TRUE) 
-  for (md in 1:nrow(m_idx)) {
-    row <- m_idx[md, 1]
-    col <- m_idx[md, 2]
-    browser()
-    m[row ,col] <- na_hamming(x_na$mask[row][[1]], x_na$mask[col][[1]])
+distance_matrix <- function(samples, trial_width) {
+  trial_width <- trial_width[1] # TODO: tenp
+  x_na <- samples %>% mutate(mask = map(.$score_gpos, zero_run_mask, trial_width))
+  distances <- tibble(a = seq(nrow(x_na))) %>% 
+    mutate(b = a) %>%
+    cross_df(.filter = `>=`) %>%
+    mutate(a_mask = map(a, ~x_na$mask[.][[1]]),
+           b_mask = map(b, ~x_na$mask[.][[1]]),
+          jaccard = map2_dbl(a_mask, b_mask, na_jaccard))
+  distances
   }
- answer <- tibble_row(gene = gene_name, width = trial_width,
-                      score = log10(1 - mean(m, na.rm = TRUE)))
-  print(trial_width)
-  print(m)
-  print(log10(1 - mean(m, na.rm = TRUE)))
-  answer
-}
 
 minimum_window <- 5
-
 mu <- assay(e, "mu")
 
 density.from <- 1
@@ -65,71 +61,64 @@ flatten_matrix <- function(experiment, assay_name, column_name = assay_name) {
 
 h <- e[as.vector(rowMin(mu) > density.from & rowMax(mu) < density.to),]
 # TODO DEBUG ONLY
-h <- h[1:8,]
-
-data <- as_tibble(rowRanges(h))
+# h <- h[1:8,]
+h <- e
+g <- as_tibble(rowRanges(h))
 range_headers <- colnames(data)
-data %<>%
+g %<>%
   inner_join(flatten_matrix(h, "scores","score_gpos")) %>%
   inner_join(flatten_matrix(h, "cpt")) %>%
+  inner_join(flatten_matrix(h, "mu")) %>%
+  inner_join(flatten_matrix(h, "var")) %>%
+  inner_join(flatten_matrix(h, "cliff.magnitude")) %>%
   mutate(scores = map(score_gpos, ~as.integer(.$score)),
          scores = map_if(scores, strand == "-", rev),
          cpt = map(cpt, function(u) u[[1]]),
          rle = map(scores, Rle),
          zrl = map(rle, function(z) 
-           sort(unique(runLength(z)[runValue(z) == 0]))),
+           sort(unique(runLength(z)[runValue(z) == 0]), decreasing = TRUE)),
          max_zrl = map_int(zrl, ~.[1]),
-         zero_run_ratio = max_zrl / width) %>%
+         zero_run_ratio = max_zrl / width) 
+
+x <- g %>% select(Name, sample, cliff.magnitude) %>%
+  filter(abs(cliff.magnitude) < 10 & cliff.magnitude !=0) %>%
+  pivot_wider(names_from = sample, id_cols = Name, values_from = cliff.magnitude) 
+
+m <- x %>% select(!Name)
+  
+y <- correlate(m, method = "pearson")
+y
+
+xl <- g %>% select(Name, sample, cliff.magnitude) %>%
+  filter(abs(cliff.magnitude) < 10 & cliff.magnitude !=0) %>%
+  modify_if(is.character, as.factor)
+
+z <- glm(cliff.magnitude ~ ., data = xl)
+
+
+
+data_gene <- g %>%
   nest(samples = !c(range_headers)) %>%
   hoist(samples, mask_widths = "zrl", .remove = FALSE) %>% # TODO: .remove for testing only
   # Select candidate mask_widths
   mutate(mask_widths = map(mask_widths, 
                            function(u) {
                              x <- unique(unlist(u))
-                             sort(x[x >= minimum_window])
-                           }))
+                             sort(x[x >= minimum_window], decreasing = TRUE)
+                           }),
+         max_mask_width = map_int(mask_widths, max))
+# TODO here's the distance measurement if needed
+# data %>%
+#   mutate(sim = map2(samples, mask_widths, distance_matrix)) -> data1
+# 
+#   # look at the detail
+#   p <- ggplot(y, aes(x = location, y = score, color = sample)) +
+#     geom_jitter(width = 0.25) +
+# #    facet_grid(rows = vars(sample)) +
+#     labs(title = gene_name) +
+#     scale_y_log10()
+#   print(p)
 
-
-
-final_answer <- lapply(seq(nrow(scores)), function(i) {
-  gene_name <- rownames(scores)[i]
-  candidate_widths <- sort(unique(unlist(map(scores[i,], function(u) u$zrl))))
-  candidate_widths <- candidate_widths[candidate_widths > minimum_window]
-})
-
-
-
-
-hist(log10(x$z_density))
-# look at very long zero-lits
-top_zrl <- sapply(scores, function(u)
-  u$zrl[1])
-dim(top_zrl) <- dim(h)
-dimnames(top_zrl) <- dimnames(h)
-
-very_wide_zero_runs <- which(rowMax(top_zrl) > 100)
-top_zrl[very_wide_zero_runs, ]
-
-for (i in very_wide_zero_runs) {
-  gene_name <- rownames(scores)[i]
-  
-  x <- sapply(scores[i, ], function(u)
-    u$score)
-  colnames(x) <- colnames(scores)
-  y <- as_tibble(x) %>%
-    mutate(location = seq(nrow(.))) %>%
-    pivot_longer(cols = starts_with("wt-"),
-                 names_to = "sample",
-                 values_to = "score")
-  
-  # look at the detail
-  p <- ggplot(y, aes(x = location, y = score, color = sample)) +
-    geom_jitter(width = 0.25) +
-#    facet_grid(rows = vars(sample)) +
-    labs(title = gene_name) +
-    scale_y_log10()
-  print(p)
-}
 
 # TODO: FORCE TO DATA FRAME
 # cpt_np <- cpt.np(data, minseglen = 16)

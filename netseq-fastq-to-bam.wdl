@@ -11,14 +11,18 @@ workflow NETseq {
     parameter_meta {
         # STAR index input
         refFasta: "Genome Reference File, FASTA format"
+
         # STAR alignment parameters
+
         inputFastQ: "Illumina Read file, FASTQ format"
         sampleName: "Sample name. If not specified, taken as base name of fastq input file"
+        adapterSequence: "Adapter sequence to trim from 3' end"
+        umiWidth: "number of bases in UMI. Defaults to 6. If zero, no UMI deduplication occurs"
         outSAMmultNmax: "The number of alignments returned for each read. If 1, then no multimmappers are returned."
         OutFilterMultiMax: "If a read has multimappers in excess of this paramter, then the read is disreagarded. Defaults"
 
         #Outputs
-        output_bam: "TODO"
+        output_bam: "aligned, deduped BAM faile"
         dedup_bam: "TODO"
         bedgraph_pos: "TODO"
         bedgraph_neg: "TODO"
@@ -34,13 +38,16 @@ workflow NETseq {
 
         # Genome source for STAR
         File refFasta
-        Int outSAMmultNmax = 1     # Default to outputting primary alignment only. (Multimap count still available at )
+        Int outSAMmultNmax = 1     # Default to outputting primary alignment only. (Multimap count still available)
         Int OutFilterMultiMax = 10 # Default to dropping reads with more than 10 alignments
 
         # Unprocessed reads
         File inputFastQ
         # TODO...optionally pull off the .1 suffix
         String sampleName = basename(basename(inputFastQ, ".gz"), ".fastq")
+        String adapterSequence = "ATCTCGTATGCCGTCTTCTGCTTG"
+        Int umiWidth = 6
+        
 
         # environment
         String netseq_docker = 'rdshear/netseq'
@@ -51,13 +58,15 @@ workflow NETseq {
 
 
 
-    call StarAlign {
+    call AlignReads {
         input:
             Infile = inputFastQ,
             refFasta = refFasta,
             sampleName = sampleName,
             outSAMmultNmax = outSAMmultNmax,
             OutFilterMultiMax = OutFilterMultiMax,
+            adapterSequence = adapterSequence,
+            umiWidth = umiWidth,
             threads = threads,
             docker = netseq_docker,
             memory = memory,
@@ -66,7 +75,7 @@ workflow NETseq {
 
     call BamToBedgraph {
         input:
-            AlignedBamFile = StarAlign.output_bam,
+            AlignedBamFile = AlignReads.output_bam,
             sampleName = sampleName,
             threads = threads,
             docker = netseq_docker,
@@ -77,27 +86,27 @@ workflow NETseq {
     # TODO clean up intermediate files.
     # TODO output bam files should be optional
     output {
-        File output_bam = StarAlign.output_bam
-
-        File dedup_bam = BamToBedgraph.BamFileDeduped
+        File output_bam = BamToBedgraph.BamFileDeduped
         File bedgraph_pos = BamToBedgraph.CoverageBedgraph_Pos
         File bedgraph_neg = BamToBedgraph.CoverageBedgraph_Neg
 
-        Array[File] logs = [StarAlign.star_log,
-                                    StarAlign.star_log_std,
-                                    StarAlign.star_log_final,
+        Array[File] logs = [AlignReads.star_log,
+                                    AlignReads.star_log_std,
+                                    AlignReads.star_log_final,
                                     BamToBedgraph.DedupLogs]
     }
 }
 
-# TODO rename StarAlign to AlignReads
-task StarAlign {
+task AlignReads {
     input {
         File Infile
         File refFasta
         String sampleName
         Int outSAMmultNmax
         Int OutFilterMultiMax
+        String adapterSequence
+        Int umiWidth
+
 
         Int threads = 8
         String docker
@@ -121,7 +130,7 @@ task StarAlign {
         --genomeFastaFiles ./sacCer3.fa \
         --genomeSAindexNbases 10
  
-        # force the temp directory to the docker's disks
+        # force the temp directory to the container's disks
         tempStarDir=$(mktemp -d)
         # star wants to create the directory itself
         rmdir "$tempStarDir"
@@ -140,9 +149,9 @@ task StarAlign {
             --outReadsUnmapped None \
             --outSAMmultNmax ~{outSAMmultNmax} \
             --outFilterMultimapNmax ~{OutFilterMultiMax} \
-            --clip3pAdapterSeq ATCTCGTATGCCGTCTTCTGCTTG \
+            --clip3pAdapterSeq ~{adapterSequence} \
             --clip3pNbases 0 \
-            --clip5pNbases 6  \
+            --clip5pNbases ~{umiWidth}  \
             --alignIntronMax 1 \
         | samtools sort >  ~{bamResultName}
     >>>

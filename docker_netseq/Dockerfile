@@ -21,6 +21,9 @@ RUN mamba create -c bioconda -n umi_tools umi_tools && conda clean -a
 # execution time scripts
 ADD scripts/ /scripts/
 
+# install OS patches
+RUN  apt update &&  apt upgrade -y
+
 # Dump the details of the installed packages to a file for posterity
 RUN mamba env export -n base > base_exported.yml
 RUN mamba env export -n umi_tools > umi_tools_exported.yml

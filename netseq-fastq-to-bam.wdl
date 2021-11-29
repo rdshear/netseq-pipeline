@@ -7,14 +7,13 @@ workflow NETseq {
         email:  "rshear@gmail.com"
     }
     # TODO quality filter
-    # TODO more parameter metadata
     parameter_meta {
         # STAR index input
         refFasta: "Genome Reference File, FASTA format"
 
         # STAR alignment parameters
 
-        inputFastQ: "Illumina Read file, FASTQ format"
+        inputFastQ: "Illumina Read file, FASTQ format."
         sampleName: "Sample name. If not specified, taken as base name of fastq input file"
         adapterSequence: "Adapter sequence to trim from 3' end"
         umiWidth: "number of bases in UMI. Defaults to 6. If zero, no UMI deduplication occurs"
@@ -23,15 +22,14 @@ workflow NETseq {
 
         #Outputs
         output_bam: "aligned, deduped BAM faile"
-        dedup_bam: "TODO"
-        bedgraph_pos: "TODO"
-        bedgraph_neg: "TODO"
+        bedgraph_pos: "Occupancy counts on + strand, bedgraph format"
+        bedgraph_neg: "Occupancy counts on - strand, bedgraph format"
 
         # Environment
-        netseq_docker: "TODO"
+        netseq_docker: "Name of docker image"
         threads: "Number of CPUs to request for task runtimes"
-        memory: "TODO"
-        preemptible: "TODO"
+        memory: "Memory required, in format appropriate to platform. Default is 8G"
+        preemptible: "For terra.bio (GCP), if 1, then attempt to run in preemptbile mode first"
     }
     input {
 
@@ -43,8 +41,7 @@ workflow NETseq {
 
         # Unprocessed reads
         File inputFastQ
-        # TODO...optionally pull off the .1 suffix
-        String sampleName = basename(basename(inputFastQ, ".gz"), ".fastq")
+        String sampleName = basename(basename(basename(inputFastQ, ".1"), ".gz"), ".fastq")
         String adapterSequence = "ATCTCGTATGCCGTCTTCTGCTTG"
         Int umiWidth = 6
         
@@ -83,8 +80,6 @@ workflow NETseq {
             preemptible = preemptible
     }
 
-    # TODO clean up intermediate files.
-    # TODO output bam files should be optional
     output {
         File output_bam = BamToBedgraph.BamFileDeduped
         File bedgraph_pos = BamToBedgraph.CoverageBedgraph_Pos
@@ -184,7 +179,7 @@ task BamToBedgraph {
         Int preemptible
     }
 
-    String bamDedupName = "~{sampleName}.dedup.bam"
+    String bamDedupName = "~{sampleName}.bam"
 
     command <<<
         df

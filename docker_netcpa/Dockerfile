@@ -34,9 +34,12 @@ RUN mamba run -n base Rscript /install.R
 # execution time scripts
 ADD scripts/ /scripts/
 
+
 # Record details of conda installation
 RUN mamba env export -n base > base_exported.yml
 
+# install OS patches
+RUN  apt update &&  apt upgrade -y
 
 # Copy additional scripts from bin and add to PATH
 RUN mkdir /opt/bin

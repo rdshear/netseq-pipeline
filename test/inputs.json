@@ -1,5 +1,5 @@
 {
   "NETseq.threads": 4,
   "NETseq.refFasta": "/n/groups/churchman/ucsc_golden_path/sacCer3.fa", 
-  "NETseq.inputFastQ": "/Users/robertshear/Projects/netseq-pipeline/test/input/test-1.fastq.gz"
+  "NETseq.inputFastQ": "/Users/robertshear/Projects/netseq-pipeline/test/input/test-1.fastq.gz.1"
 }

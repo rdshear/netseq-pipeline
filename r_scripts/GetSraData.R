@@ -20,6 +20,9 @@ create_sample_grid <- function(bioproject,
     expref <- xml_find_all(runs, "EXPERIMENT_REF")
     experiment_id <- xml_attr(expref, "accession")
     biosample_id <- xml_attr(expref, "refname")
+    total_reads <- xml_attr(runs, "total_spots")
+    total_bases <- xml_attr(runs, "total_bases")
+    size <- xml_attr(runs, "size")
     # Only reporting first member in pool
     member <- xml_find_first(runs, "Pool/Member")
     sample_title <- xml_attr(member, "sample_title")
@@ -28,7 +31,7 @@ create_sample_grid <- function(bioproject,
     sra_File_alt <- xml_find_first(sra_File, glue("./Alternatives[@org=\"{org}\"]"))
     filename <- xml_attr(sra_File, "filename")
     sra_url <- xml_attr(sra_File_alt, "url")
-    tibble(bioproject, experiment_id, biosample_id, sra_sample_id, run_id, sample_title,  filename, sra_url)
+    tibble(bioproject, experiment_id, biosample_id, sra_sample_id, run_id, sample_title, total_reads, total_bases, size, filename, sra_url)
 }
 
 # PRJNA669852 -- Churchman Lab - dozens of regulatory factors

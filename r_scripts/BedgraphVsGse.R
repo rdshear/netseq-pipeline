@@ -9,13 +9,14 @@ suppressPackageStartupMessages({
 
 # TODO Parameterize and Cloudify input files
 # TODO Debug & un-hard code outliers
-new_pos <- import("/n/groups/churchman/rds19/data/S005/wt-1.pos.bedgraph.gz", genome = "sacCer3")
-new_neg <- import("/n/groups/churchman/rds19/data/S005/wt-1.neg.bedgraph.gz", genome = "sacCer3")
-old_pos <- import("/n/groups/churchman/GSE159603/wt-1.pos.bedgraph.gz", genome = "sacCer3")
-old_neg <- import("/n/groups/churchman/GSE159603/wt-1.neg.bedgraph.gz",  genome = "sacCer3")
-
-sacCer3Ranges <- SeqinfoForBSGenome("sacCer3")
+load_bedgraph <- function(f) dropSeqlevels(import(f, genome = "sacCer3"), "chrM", pruning.mode = "coarse")
+new_pos <- load_bedgraph ("/n/groups/churchman/rds19/data/S005/wt-4.pos.bedgraph.gz")
+new_neg <- load_bedgraph ("/n/groups/churchman/rds19/data/S005/wt-4.neg.bedgraph.gz")
+old_pos <- load_bedgraph ("~/Downloads/wt-4.pos.bedgraph.gz")
+old_neg <- load_bedgraph ("~/Downloads/wt-4.neg.bedgraph.gz")
+sacCer3Ranges <- dropSeqlevels(SeqinfoForBSGenome("sacCer3"), "chrM")
 tiles <- unlist(tileGenome(sacCer3Ranges, tilewidth = 1000))
+dropSeqlevels(new_pos, "chrM", pruning.mode = "coarse")
 
 binIt <- function(u) {
   result <- binnedAverage(tiles, replace_na(mcolAsRleList(u, "score"), 0), "meanScore", na.rm=TRUE)

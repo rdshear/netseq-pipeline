@@ -22,3 +22,11 @@ result1 <- result[1,]
 cmds <- paste0("gsutil cp ", result$inref, " ", target, result$filename)
 
 writeLines(cmds, "~/Downloads/xfers.sh")
+
+indat$jobref <- sapply(strsplit(indat$inref, split = "/"), function(u) u[4])
+x <- split(indat$date, indat$jobref)
+y <- sort(sapply(x, max))
+z <- data.frame(jobroot = paste0("gs://fc-secure-eea6de1f-1832-463e-bf86-820192da1f92/", names(y)), jobdate = y, stringsAsFactors = FALSE)
+
+killdirs <- paste0("gsutil rm -r \"", z$jobroot, "/*\"")
+writeLines(killdirs, "~/Downloads/killdirs.sh")

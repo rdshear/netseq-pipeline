@@ -10,13 +10,14 @@ suppressPackageStartupMessages({
 # TODO Parameterize and Cloudify input files
 # TODO Debug & un-hard code outliers
 load_bedgraph <- function(f) dropSeqlevels(import(f, genome = "sacCer3"), "chrM", pruning.mode = "coarse")
-new_pos <- load_bedgraph ("/n/groups/churchman/rds19/data/S005/wt-4.pos.bedgraph.gz")
-new_neg <- load_bedgraph ("/n/groups/churchman/rds19/data/S005/wt-4.neg.bedgraph.gz")
-old_pos <- load_bedgraph ("~/Downloads/wt-4.pos.bedgraph.gz")
-old_neg <- load_bedgraph ("~/Downloads/wt-4.neg.bedgraph.gz")
+new_pos <- load_bedgraph ("/n/groups/churchman/rds19/data/S005/fastp/wt-4.pos.bedgraph.gz")
+new_neg <- load_bedgraph ("/n/groups/churchman/rds19/data/S005/fastp/wt-4.neg.bedgraph.gz")
+old_pos <- load_bedgraph ("/n/groups/churchman/rds19/data/S005/umi_tools/wt-4.pos.bedgraph.gz")
+old_neg <- load_bedgraph ("/n/groups/churchman/rds19/data/S005/umi_tools/wt-4.neg.bedgraph.gz")
+
+
 sacCer3Ranges <- dropSeqlevels(SeqinfoForBSGenome("sacCer3"), "chrM")
 tiles <- unlist(tileGenome(sacCer3Ranges, tilewidth = 1000))
-dropSeqlevels(new_pos, "chrM", pruning.mode = "coarse")
 
 binIt <- function(u) {
   result <- binnedAverage(tiles, replace_na(mcolAsRleList(u, "score"), 0), "meanScore", na.rm=TRUE)
@@ -37,6 +38,8 @@ print(result)
 
 v <- data.frame(new = binned_pos_new$meanScore, old = binned_pos_old$meanScore)
 plot(v)
+
+v <- data.frame(new = as.integer(binned_pos_new$meanScore * 1000), old = as.integer(binned_pos_old$meanScore * 1000) )
 
 filter <- GRanges("chrIV:437850-437860")
 old_filtered <- subsetByOverlaps(old_pos, filter)
